@@ -25,7 +25,7 @@ from pip._vendor import pkg_resources
 
 __author__ = 'Konstantin Sering, Paul Schmidt-Barbo'
 __author_email__ = 'konstantin.sering@uni-tuebingen.de'
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 __license__ = 'GPLv3+'
 __description__ = ('paule - Predictive Articulatory speech synthesis Utilizing Lexical Embeddings')
 __classifiers__ = [
