@@ -5,3 +5,4 @@ doc/build/
 doc/examples/
 paule.egg-info/
 paule/__pycache__/
+dist/
