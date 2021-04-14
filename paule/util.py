@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 
-_DIR = os.path.dirname(__file__)
+DIR = os.path.dirname(__file__)
 _FILE_ENDING = ''
 if sys.platform.startswith('linux'):
     _FILE_ENDING = '.so'
@@ -15,8 +15,8 @@ elif sys.platform.startswith('win32'):
 elif sys.platform.startswith('darwin'):
     _FILE_ENDING = '.dynlib'
 
-VTL = ctypes.cdll.LoadLibrary(os.path.join(_DIR, 'vocaltractlab_api/VocalTractLabApi' + _FILE_ENDING))
-del _DIR, _FILE_ENDING
+VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/VocalTractLabApi' + _FILE_ENDING))
+del _FILE_ENDING
 
 
 # This should be done on all cp_deltas
@@ -131,7 +131,7 @@ def speak(cp_param):
 
     """
     # initialize vtl
-    speaker_file_name = ctypes.c_char_p('JD2.speaker'.encode())
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD2.speaker').encode())
 
     failure = VTL.vtlInitialize(speaker_file_name)
     if failure != 0:
@@ -288,7 +288,7 @@ def export_svgs(cps, path='svgs/', hop_length=5):
     """
     n_tract_parameter = 19
     # initialize vtl
-    speaker_file_name = ctypes.c_char_p('JD2.speaker'.encode())
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD2.speaker').encode())
 
     failure = VTL.vtlInitialize(speaker_file_name)
     if failure != 0:

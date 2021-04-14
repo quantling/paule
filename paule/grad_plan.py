@@ -27,6 +27,7 @@ The general idea works as follows:
 import pickle
 import random
 import time
+import os
 
 import pandas as pd
 import numpy as np
@@ -47,8 +48,9 @@ random.seed(20200905)
 tqdm.pandas()
 
 from .util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length
-from .models import ForwardModel_ResidualSmoothMel, InverseModel_MelSmoothResidual, EmeddingClassifierModel
+from .models import ForwardModel_ResidualSmoothMel, InverseModel_MelSmoothResidual, ClassifierModel_MelSmoothUpsampling
 
+DIR = os.path.dirname(__file__)
 
 
 def mse_loss(pred, target):
@@ -98,22 +100,22 @@ class Paule():
         # for cpu
         self.device = torch.device('cpu')
         self.pred_model = ForwardModel_ResidualSmoothMel().double()
-        self.pred_model.load_state_dict(torch.load("pretrained_models/ForwardModel_ResidualSmoothMel_5_3_lr0001_150_rmse_pos_loss.pt", map_location=self.device))
+        self.pred_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/ForwardModel_ResidualSmoothMel_5_3_lr0001_150_rmse_pos_loss.pt"), map_location=self.device))
 
         self.inv_model = InverseModel_MelSmoothResidual().double()
-        self.inv_model.load_state_dict(torch.load("pretrained_models/InverseModel_MelSmoothResidual_3_leakyReLU_5_lr0001_150_rmse_pos_zeros_l1_vel_zeros_l1_jerk_loss.pt", map_location=self.device))
+        self.inv_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/InverseModel_MelSmoothResidual_3_leakyReLU_5_lr0001_150_rmse_pos_zeros_l1_vel_zeros_l1_jerk_loss.pt"), map_location=self.device))
 
-        self.classifier = EmeddingClassifierModel()
-        self.classifier.load_state_dict(torch.load("pretrained_models/classifier_3convSmoothing_180_4_8192_lr000001_batchsize_8_whole_100.pt", map_location=self.device))
+        self.classifier = ClassifierModel_MelSmoothUpsampling().double()
+        self.classifier.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/classifier_3convSmoothing_180_4_8192_lr00001_batchsize_8_whole_100.pt"), map_location=self.device))
 
-        self.data = pd.read_pickle('data/full_data_tino.pkl')
+        self.data = pd.read_pickle(os.path.join(DIR, 'data/full_data_tino.pkl'))
 
-        self.pred_optimizer = torch.optim.Adam(pred_model.parameters(), lr=0.001)
+        self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = mse_loss
 
 
 
-    def plan_resynth(self, wave_name, *, inv_cp=None, plot=False, use_semantics=True, log_semantics=False):
+    def plan_resynth(self, wave_name, *, inv_cp=None, plot=False, use_semantics=True, log_semantics=False, n_outer=40, n_inner=200):
         if isinstance(wave_name, str):
             target_sig, target_sr = sf.read(wave_name)
             if len(target_sig.shape) == 2:
@@ -133,11 +135,7 @@ class Paule():
         if use_semantics or log_semantics:
             with torch.no_grad():
                 seq_length = target_mel.shape[1]
-                onset_semvec = np.zeros((1, seq_length, 1))
-                onset_semvec[0, 0] = 1
-                target_mel_onset = np.concatenate((target_mel, onset_semvec), axis=2)
-                target_mel_onset = torch.from_numpy(target_mel_onset)
-                target_semvec = self.classifier(target_mel_onset, (torch.tensor(seq_length),))
+                target_semvec = self.classifier(target_mel, (torch.tensor(seq_length),))
 
         if plot:
             librosa.display.specshow(target_mel[-1, :, :].detach().numpy().T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000)
@@ -190,7 +188,7 @@ class Paule():
         jerk_weight = float(0.5 * initial_mel_loss / initial_jerk_loss)
         velocity_weight = float(0.5 * initial_mel_loss / initial_velocity_loss)
         if use_semantics or log_semantics:
-            semvec_weight = float(0.5 * initial_mel_loss / initial_semvec_loss)
+            semvec_weight = float(10.0 * initial_mel_loss / initial_semvec_loss)
             del initial_semvec_loss
 
         del initial_mel_loss, initial_jerk_loss, initial_velocity_loss
@@ -206,13 +204,13 @@ class Paule():
                         + mse_loss(pred_mel, target_mel))
 
         # continue learning
-        for _ in tqdm(range(40)):  # 40
+        for _ in tqdm(range(n_outer)):  # 40
             # imagine and plan
-            for ii in range(200):  # 200
+            for ii in range(n_inner):  # 200
                 pred_mel = self.pred_model(xx_new)
                 if use_semantics or (log_semantics and ii % 10 == 0):
                     seq_length = pred_mel.shape[1]
-                    pred_semvec = self.classifier(pred_mel_onset, (torch.tensor(seq_length),))
+                    pred_semvec = self.classifier(pred_mel, (torch.tensor(seq_length),))
 
                 if use_semantics:
                     discrepancy = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
@@ -246,18 +244,18 @@ class Paule():
             prod_mel = torch.from_numpy(prod_mel)
 
             # update with new sample
-            pred_optimizer.zero_grad()
+            self.pred_optimizer.zero_grad()
             pred_mel = self.pred_model(xx_new)
-            pred_loss = pred_criterion(pred_mel, prod_mel)
+            pred_loss = self.pred_criterion(pred_mel, prod_mel)
             pred_loss.backward()
-            pred_optimizer.step()
+            self.pred_optimizer.step()
             prod_loss = mse_loss(prod_mel, target_mel)
             print(f"PRED LOSS: {discrepancy.item():.2e}   PROD LOSS: {prod_loss.item():.2e}")
             loss_prod_steps.append(prod_loss.item())
 
             # update with 10 old samples
-            for index, (xx, norm_mel) in df[['cp_norm', 'melspec_norm']].sample(10).iterrows():
-                pred_optimizer.zero_grad()
+            for index, (xx, norm_mel) in self.data[['cp_norm', 'melspec_norm']].sample(10).iterrows():
+                self.pred_optimizer.zero_grad()
 
                 xx = xx.copy()
                 xx = pad_same_to_even_seq_length(xx)
@@ -270,9 +268,9 @@ class Paule():
                 norm_mel.shape = (1,) + norm_mel.shape
                 norm_mel -= norm_mel.min()
                 norm_mel = torch.tensor(norm_mel)
-                pred_loss = pred_criterion(pred_mel, norm_mel)
+                pred_loss = self.pred_criterion(pred_mel, norm_mel)
                 pred_loss.backward()
-                pred_optimizer.step()
+                self.pred_optimizer.step()
         planned_cp = xx_new[-1, :, :].detach().numpy()
         prod_sig = sig
         target_mel = target_mel[-1, :, :].detach().numpy()

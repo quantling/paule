@@ -9,7 +9,7 @@ def add_vel_and_acc_info(x):
     :return: torch.Tensor
         3D-Tensor (batch,seq_length, 3*channels)
     """
-    zeros = torch.zeros(x.shape[0], 1, x.shape[2]).to(DEVICE)
+    zeros = torch.zeros(x.shape[0], 1, x.shape[2]).to(x.device)
     velocity = x[:, 1:, :] - x[:, :-1, :]
     acceleration = velocity[:, 1:, :] - velocity[:, :-1, :]
     velocity = torch.cat((velocity, zeros), axis=1)
@@ -52,15 +52,15 @@ class MelChannelConv1D(torch.nn.Module):
         output_units = int(input_units // filter_size_channel)
         self.ConvLayers = torch.nn.ModuleList([torch.nn.Conv1d(input_units, output_units, 5, padding=2, groups=output_units) for _ in range(filter_size_channel)])
 
-    def forward(self,x):
+    def forward(self, x):
         batch, mel, seq = x.shape
         xs = []
         for i in range(self.filter_size_channel -2):
-            x_i = torch.cat((torch.zeros(batch, i+1, seq).to(DEVICE), x[:, :-(i+1),:]), axis=1)
+            x_i = torch.cat((torch.zeros(batch, i+1, seq).to(x.device), x[:, :-(i+1),:]), axis=1)
 
             xs.append(x_i)
         xs.append(x)
-        xs.append(torch.cat((x[:,1:,:], torch.zeros(batch, 1, seq).to(DEVICE)), axis=1))
+        xs.append(torch.cat((x[:,1:,:], torch.zeros(batch, 1, seq).to(x.device)), axis=1))
 
         outputs = []
         for i,layer in enumerate(self.ConvLayers):
@@ -263,4 +263,47 @@ class EmbeddingClassifierModel(torch.nn.Module):
         return output
 
 
+
+class ClassifierModel_MelSmoothUpsampling(torch.nn.Module):
+    """
+        InverseModel with Inital Conv1d Layers for Convolution over time and Mel Channels + Post Resnet like modules  for smoothing over time"
+    """
+
+    def __init__(self, input_size=60,
+                 output_size=300,
+                 hidden_size=180,
+                 num_lstm_layers=4,
+                 mel_smooth_layers=3,
+                 mel_smooth_filter_size=3,
+                 post_upsampling_size=8192):
+        super().__init__()
+
+        self.block_activation = torch.nn.LeakyReLU()
+        # self.add_vel_and_acc_info = add_vel_and_acc_info
+        self.MelBlocks = torch.nn.ModuleList(
+            [MelChannelConv1D(input_size, mel_smooth_filter_size) for _ in range(mel_smooth_layers)])
+        self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers=num_lstm_layers, batch_first=True)
+        self.post_linear = torch.nn.Linear(hidden_size, post_upsampling_size)
+        self.upsampling = torch.nn.Linear(post_upsampling_size, output_size)
+        self.post_activation = torch.nn.LeakyReLU()
+        # self.resid_weighting = torch.nn.Conv1d(2 * output_size, output_size, time_filter_size, padding=2, groups=output_size)
+
+    def forward(self, x, lens):
+        # IntermediateOutputs = []
+        x = x.permute(0, 2, 1)
+        for layer in self.MelBlocks:
+            shortcut = x
+            x = layer(x)
+            x += shortcut
+            x = self.block_activation(x)
+
+        x = x.permute(0, 2, 1)
+        # x = self.add_vel_and_acc_info(x)
+        output, (h_n, _) = self.lstm(x)
+        output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
+        output = self.post_linear(output)
+        output = self.post_activation(output)
+        output = self.upsampling(output)
+
+        return output
 
