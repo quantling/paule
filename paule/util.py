@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
+import torch.nn
 
 DIR = os.path.dirname(__file__)
 _FILE_ENDING = ''
@@ -283,6 +284,7 @@ def pad_same_to_even_seq_length(array):
 
 def export_svgs(cps, path='svgs/', hop_length=5):
     """
+    hop_length == 5 : roughly 80 frames per second
     hop_length == 16 : roughly 25 frames per second
 
     """
@@ -308,3 +310,13 @@ def export_svgs(cps, path='svgs/', hop_length=5):
 
         VTL.vtlExportTractSvg(tract_params, file_name)
 
+
+class RMSELoss(torch.nn.Module):
+    def __init__(self, eps=1e-6):
+        super().__init__()
+        self.mse = torch.nn.MSELoss()
+        self.eps = eps
+
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(yhat, y) + self.eps)
+        return loss

@@ -109,27 +109,34 @@ class ForwardModel_ResidualSmoothMel(torch.nn.Module):
                  output_size=60,
                  hidden_size=180,
                  num_lstm_layers=4,
-                 n_blocks = 3,
-                 mel_smooth_layers = 3,
-                 mel_smooth_filter_size = 3,
-                 resiudal_blocks=5, time_filter_size = 5):
+                 mel_smooth_layers=3,
+                 mel_smooth_filter_size=3,
+                 resiudal_blocks=5,
+                 time_filter_size=5,
+                 lstm_resid=True):
         super().__init__()
 
+        self.lstm_resid = lstm_resid
         self.activation = torch.nn.LeakyReLU()
-        self.ResidualConvBlocks = torch.nn.ModuleList([TimeConvResBlock(input_size,time_filter_size) for _ in range(resiudal_blocks)])
+        self.ResidualConvBlocks = torch.nn.ModuleList(
+            [TimeConvResBlock(input_size, time_filter_size) for _ in range(resiudal_blocks)])
         self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
         self.add_vel_and_acc_info = add_vel_and_acc_info
         self.lstm = torch.nn.LSTM(3 * (input_size), hidden_size, num_layers=num_lstm_layers, batch_first = True)
         self.post_linear = torch.nn.Linear(hidden_size, output_size)
-        self.MelBlocks = torch.nn.ModuleList([MelChannelConv1D(output_size,mel_smooth_filter_size) for _ in range(mel_smooth_layers)])
+        self.MelBlocks = torch.nn.ModuleList(
+            [MelChannelConv1D(output_size, mel_smooth_filter_size) for _ in range(mel_smooth_layers)])
         self.block_activation = torch.nn.LeakyReLU()
-        self.resid_weighting = torch.nn.Conv1d(2 * output_size, output_size, time_filter_size, padding=2, groups=output_size)
+        if self.lstm_resid:
+            self.resid_weighting = torch.nn.Conv1d(2 * output_size, output_size, time_filter_size, padding=2,
+                                                   groups=output_size)
 
-    def forward(self,x):
-        x = x.permute(0,2,1)
-        for layer in self.ResidualConvBlocks:
-            x = layer(x)
-        x = x.permute(0,2,1)
+    def forward(self, x,*args):
+        if len(self.ResidualConvBlocks) >0:
+            x = x.permute(0, 2, 1)
+            for layer in self.ResidualConvBlocks:
+                x = layer(x)
+            x = x.permute(0, 2, 1)
         x = self.add_vel_and_acc_info(x)
         output, _ = self.lstm(x)
         output = self.post_linear(output)
@@ -143,9 +150,10 @@ class ForwardModel_ResidualSmoothMel(torch.nn.Module):
             output += shortcut
             output = self.block_activation(output)
 
-        output = [torch.stack((lstm_output[:, i, :], output[:, i, :]), axis=1) for i in range(output.shape[1])]
-        output = torch.cat(output, axis=1)
-        output = self.resid_weighting(output)
+        if self.lstm_resid:
+            output = [torch.stack((lstm_output[:, i, :], output[:, i, :]), axis=1) for i in range(output.shape[1])]
+            output = torch.cat(output, axis=1)
+            output = self.resid_weighting(output)
         output = output.permute(0, 2, 1)
         output = self.activation(output)
 
@@ -158,7 +166,7 @@ def double_sequence(output):
     output1 = output
     output2 = (output[:, :-1, :] + output[:, 1:, :]) / 2.0
     output2 = torch.cat([output2, output1[:, -1, :].view(output1.shape[0], 1, output1.shape[2])], axis=1)
-    output = torch.zeros((output1.shape[0],output1.shape[1] + output2.shape[1], output1.shape[2]), dtype=torch.double, requires_grad = True)  #.to(device)
+    output = torch.zeros((output1.shape[0],output1.shape[1] + output2.shape[1], output1.shape[2]), dtype=torch.double, requires_grad=False, device=output.device)
     output[:, ::2, :] = output1   # Index every second row, starting from 0
     output[:, 1::2, :] = output2
     return output
@@ -193,9 +201,10 @@ class InverseModel_MelSmoothResidual(torch.nn.Module):
                  output_size=30,
                  hidden_size=180,
                  num_lstm_layers=4,
-                 mel_smooth_layers = 3,
-                 mel_smooth_filter_size = 3,
-                 resiudal_blocks=5, time_filter_size = 5):
+                 mel_smooth_layers=3,
+                 mel_smooth_filter_size=3,
+                 resiudal_blocks=5,
+                 time_filter_size=5):
         super().__init__()
 
         self.pre_activation = torch.nn.Identity()
@@ -255,7 +264,7 @@ class EmbeddingClassifierModel(torch.nn.Module):
 
     def forward(self, input_, lens):
         output, (h_n, _) = self.lstm1(input_)
-        output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
+        output = torch.stack([output[i, (last - 1), :] for i, last in enumerate(lens)])
         output = self.post_linear1(output)
         output = self.leaky_relu(output)
         output = self.post_linear2(output)
@@ -300,10 +309,9 @@ class ClassifierModel_MelSmoothUpsampling(torch.nn.Module):
         x = x.permute(0, 2, 1)
         # x = self.add_vel_and_acc_info(x)
         output, (h_n, _) = self.lstm(x)
-        output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
+        output = torch.stack([output[i, (last - 1), :] for i, last in enumerate(lens)])
         output = self.post_linear(output)
         output = self.post_activation(output)
         output = self.upsampling(output)
 
         return output
-

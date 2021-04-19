@@ -36,6 +36,7 @@ from tqdm import tqdm
 import torch
 from torch.distributions.normal import Normal
 from torch.utils import data
+from torch.nn import L1Loss
 from matplotlib import pyplot as plt
 import soundfile as sf
 import noisereduce
@@ -47,40 +48,45 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-from .util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length
+from .util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss
 from .models import ForwardModel_ResidualSmoothMel, InverseModel_MelSmoothResidual, ClassifierModel_MelSmoothUpsampling
 
 DIR = os.path.dirname(__file__)
 
 
-def mse_loss(pred, target):
-    return torch.mean((target - pred).pow(2))
+#def mse_loss(pred, target):
+#    return torch.sum((target - pred).pow(2))
+
+mse_loss = RMSELoss()
+l1 = L1Loss()
 
 
 def velocity_loss(pred):
     velocity_lag1 = pred[:, 1:, :] - pred[:, :-1, :]
-    velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
-    velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
+    #velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
+    #velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
     velocity_lag1 = velocity_lag1.pow(2)
-    velocity_lag2 = velocity_lag2.pow(2)
-    velocity_lag4 = velocity_lag4.pow(2)
-    return torch.sum(velocity_lag1) + 0.5 * torch.sum(velocity_lag2) + 0.25 * torch.sum(velocity_lag4)
+    #velocity_lag2 = velocity_lag2.pow(2)
+    #velocity_lag4 = velocity_lag4.pow(2)
+    return l1(velocity_lag1, torch.zeros_like(velocity_lag1))
+    #return torch.sum(velocity_lag1)  #+ 0.5 * torch.sum(velocity_lag2) + 0.25 * torch.sum(velocity_lag4)
 
 
 def jerk_loss(pred):
     velocity_lag1 = pred[:, 1:, :] - pred[:, :-1, :]
-    velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
-    velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
+    #velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
+    #velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
     acceleration_lag1 = velocity_lag1[:, 1:, :] - velocity_lag1[:, :-1, :]
-    acceleration_lag2 = velocity_lag2[:, 1:, :] - velocity_lag2[:, :-1, :]
-    acceleration_lag4 = velocity_lag4[:, 1:, :] - velocity_lag4[:, :-1, :]
+    #acceleration_lag2 = velocity_lag2[:, 1:, :] - velocity_lag2[:, :-1, :]
+    #acceleration_lag4 = velocity_lag4[:, 1:, :] - velocity_lag4[:, :-1, :]
     jerk_lag1 = acceleration_lag1[:, 1:, :] - acceleration_lag1[:, :-1, :]
-    jerk_lag2 = acceleration_lag2[:, 1:, :] - acceleration_lag2[:, :-1, :]
-    jerk_lag4 = acceleration_lag4[:, 1:, :] - acceleration_lag4[:, :-1, :]
+    #jerk_lag2 = acceleration_lag2[:, 1:, :] - acceleration_lag2[:, :-1, :]
+    #jerk_lag4 = acceleration_lag4[:, 1:, :] - acceleration_lag4[:, :-1, :]
     jerk_lag1 = jerk_lag1.pow(2)
-    jerk_lag2 = jerk_lag2.pow(2)
-    jerk_lag4 = jerk_lag4.pow(2)
-    return torch.sum(jerk_lag1) + 0.25 * torch.sum(jerk_lag2)  + 1/16 * torch.sum(jerk_lag4)
+    #jerk_lag2 = jerk_lag2.pow(2)
+    #jerk_lag4 = jerk_lag4.pow(2)
+    return l1(jerk_lag1, torch.zeros_like(jerk_lag1))
+    #return torch.sum(jerk_lag1)  #+ 0.25 * torch.sum(jerk_lag2)  + 1/16 * torch.sum(jerk_lag4)
 
 
 class Paule():
@@ -94,19 +100,24 @@ class Paule():
 
     """
 
-    def __init__(self):
+    def __init__(self, *, device=torch.device('cpu')):
 
         # load the pred_model, inv_model and classifier here
         # for cpu
-        self.device = torch.device('cpu')
-        self.pred_model = ForwardModel_ResidualSmoothMel().double()
-        self.pred_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/ForwardModel_ResidualSmoothMel_5_3_lr0001_150_rmse_pos_loss.pt"), map_location=self.device))
+        self.device = device
+        #self.pred_model = ForwardModel_ResidualSmoothMel().double()
+        #self.pred_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/ForwardModel_ResidualSmoothMel_5_3_lr0001_150_rmse_pos_loss.pt"), map_location=self.device))
+        self.pred_model = ForwardModel_ResidualSmoothMel(hidden_size=180, num_lstm_layers=1, mel_smooth_layers=0, mel_smooth_filter_size=3, resiudal_blocks=5, time_filter_size=5, lstm_resid=True).double()
+        self.pred_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/ForwardModel_ResidualSmoothMel_180_1_5_0_lr0001_150_rmse_pos_loss.pt"), map_location=self.device))
+        self.pred_model = self.pred_model.to(self.device)
 
         self.inv_model = InverseModel_MelSmoothResidual().double()
         self.inv_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/InverseModel_MelSmoothResidual_3_leakyReLU_5_lr0001_150_rmse_pos_zeros_l1_vel_zeros_l1_jerk_loss.pt"), map_location=self.device))
+        self.inv_model = self.inv_model.to(self.device)
 
         self.classifier = ClassifierModel_MelSmoothUpsampling().double()
         self.classifier.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/classifier_3convSmoothing_180_4_8192_lr00001_batchsize_8_whole_100.pt"), map_location=self.device))
+        self.classifier = self.classifier.to(self.device)
 
         self.data = pd.read_pickle(os.path.join(DIR, 'data/full_data_tino.pkl'))
 
@@ -131,14 +142,15 @@ class Paule():
         target_mel -= target_mel.min()
         target_mel.shape = (1, ) + target_mel.shape
         target_mel = torch.from_numpy(target_mel)
+        target_mel= target_mel.to(self.device)
 
         if use_semantics or log_semantics:
             with torch.no_grad():
-                seq_length = target_mel.shape[1]
-                target_semvec = self.classifier(target_mel, (torch.tensor(seq_length),))
+                target_semvec = self.classifier(target_mel, (target_mel.shape[1],))
+                target_semvec = target_semvec.to(self.device)
 
         if plot:
-            librosa.display.specshow(target_mel[-1, :, :].detach().numpy().T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000)
+            librosa.display.specshow(target_mel[-1, :, :].detach().cpu().numpy().T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000)
             plt.show()
 
         learning_rate = 0.05
@@ -154,10 +166,10 @@ class Paule():
 
         # 1.1 predict inv_cp
         if inv_cp is None:
-            xx = target_mel.detach().clone()
+            xx = target_mel.detach().clone().to(self.device)
             with torch.no_grad():
                 inv_cp = self.inv_model(xx)
-            inv_cp = inv_cp.detach().numpy()
+            inv_cp = inv_cp.detach().cpu().numpy()
             inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
             del xx
         else:
@@ -165,21 +177,19 @@ class Paule():
 
         # 1.3 create initial xx
         #inv_cp = np.zeros_like(inv_cp)
-        xx = inv_cp.copy()
-        xx.shape = (1, xx.shape[0], xx.shape[1])
-        xx = torch.from_numpy(xx)
-        xx_new = xx.detach()
+        xx_new = inv_cp.copy()
+        xx_new.shape = (1, xx_new.shape[0], xx_new.shape[1])
+        xx_new = torch.from_numpy(xx_new)
+        xx_new = xx_new.to(self.device)
         xx_new.requires_grad_()
         xx_new.retain_grad()
-        del xx
 
         # 1.4 adaptive weights for loss
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
         if use_semantics or log_semantics:
             with torch.no_grad():
-                seq_length = pred_mel.shape[1]
-                pred_semvec = self.classifier(pred_mel, (torch.tensor(seq_length),))
+                pred_semvec = self.classifier(pred_mel, (pred_mel.shape[1],))
         initial_mel_loss = mse_loss(pred_mel, target_mel)
         initial_jerk_loss = jerk_loss(xx_new)
         initial_velocity_loss = velocity_loss(xx_new)
@@ -188,7 +198,7 @@ class Paule():
         jerk_weight = float(0.5 * initial_mel_loss / initial_jerk_loss)
         velocity_weight = float(0.5 * initial_mel_loss / initial_velocity_loss)
         if use_semantics or log_semantics:
-            semvec_weight = float(10.0 * initial_mel_loss / initial_semvec_loss)
+            semvec_weight = float(1.0 * initial_mel_loss / initial_semvec_loss)
             del initial_semvec_loss
 
         del initial_mel_loss, initial_jerk_loss, initial_velocity_loss
@@ -206,19 +216,29 @@ class Paule():
         # continue learning
         for _ in tqdm(range(n_outer)):  # 40
             # imagine and plan
+            #print('continue learning', time.time())
+            #last_time = time.time()
             for ii in range(n_inner):  # 200
+                #print('plan', last_time - time.time())
+                #last_time = time.time()
                 pred_mel = self.pred_model(xx_new)
+                #print('pred', last_time - time.time())
+                #last_time = time.time()
                 if use_semantics or (log_semantics and ii % 10 == 0):
                     seq_length = pred_mel.shape[1]
                     pred_semvec = self.classifier(pred_mel, (torch.tensor(seq_length),))
+                    #print('classify', last_time - time.time())
+                    #last_time = time.time()
 
                 if use_semantics:
                     discrepancy = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
                 else:
                     discrepancy = criterion(pred_mel, target_mel, xx_new)
                 discrepancy.backward()
+                #print('backprop', last_time - time.time())
+                #last_time = time.time()
 
-                if ii % 10 == 0:
+                if ii % 20 == 0:
                     loss_steps.append(float(discrepancy.item()))
                     loss_mel_steps.append(float(mse_loss(pred_mel, target_mel)))
                     if use_semantics or log_semantics:
@@ -227,21 +247,24 @@ class Paule():
                     loss_velocity_steps.append(float(velocity_weight * velocity_loss(xx_new)))
 
 
-                grad = xx_new.grad.detach().numpy()
-
-                xx_new = xx_new.detach().numpy()
+                grad = xx_new.grad.detach()
+                xx_new = xx_new.detach()
                 xx_new = xx_new - learning_rate * grad
 
-                xx_new = torch.from_numpy(xx_new)
                 xx_new.requires_grad_()
                 xx_new.retain_grad()
+                #print('gradient update', last_time - time.time())
+                #last_time = time.time()
+
+            #print('plan end', time.time())
 
             # execute and continue learning
-            sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :30].detach().numpy()))
+            sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :].detach().cpu().numpy()))
             prod_mel = librosa_melspec(sig, sr)
             prod_mel = normalize_mel_librosa(prod_mel)
             prod_mel.shape = pred_mel.shape
             prod_mel = torch.from_numpy(prod_mel)
+            prod_mel = prod_mel.to(self.device)
 
             # update with new sample
             self.pred_optimizer.zero_grad()
@@ -262,22 +285,24 @@ class Paule():
                 xx.shape = (1,) + xx.shape
                 seq_length = xx.shape[0]
                 xx = torch.from_numpy(xx)
+                xx = xx.to(self.device)
                 pred_mel = self.pred_model(xx)
                 
                 norm_mel = norm_mel.copy()
                 norm_mel.shape = (1,) + norm_mel.shape
                 norm_mel -= norm_mel.min()
                 norm_mel = torch.tensor(norm_mel)
+                norm_mel = norm_mel.to(self.device)
                 pred_loss = self.pred_criterion(pred_mel, norm_mel)
                 pred_loss.backward()
                 self.pred_optimizer.step()
-        planned_cp = xx_new[-1, :, :].detach().numpy()
+        planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
-        target_mel = target_mel[-1, :, :].detach().numpy()
-        prod_mel = prod_mel[-1, :, :].detach().numpy()
+        target_mel = target_mel[-1, :, :].detach().cpu().numpy()
+        prod_mel = prod_mel[-1, :, :].detach().cpu().numpy()
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
-        pred_mel = pred_mel[-1, :, :].detach().numpy()
+        pred_mel = pred_mel[-1, :, :].detach().cpu().numpy()
         return (planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, loss_steps,
                 loss_mel_steps, loss_semvec_steps, loss_jerk_steps, loss_velocity_steps, loss_prod_steps)
 
