@@ -33,7 +33,8 @@ def vis_result(result, condition='prefix'):
 
     fig = plt.figure()
     plt.plot(loss_steps, c='blue', label='loss', lw=3)
-    plt.plot(range(20, (len(loss_prod_steps) + 1) * 20, 20), loss_prod_steps, c='green', label='prod loss', lw=3)
+    step_size = int(len(loss_jerk_steps)/len(loss_prod_steps))
+    plt.plot(range(step_size - 1, (len(loss_prod_steps)) * step_size, step_size), loss_prod_steps, c='green', label='prod loss', lw=3)
     plt.plot(loss_jerk_steps, ls=':', c='blue', label='jerk loss')
     plt.plot(loss_velocity_steps, ls='--', c='blue', label='velocity loss')
     plt.plot(loss_mel_steps, ls='-', c='blue', label='mel loss')
@@ -66,13 +67,13 @@ def vis_result(result, condition='prefix'):
 
 
     os.makedirs(f'data/{CONDITION}_inv_svgs/')
-    util.export_svgs(util.inv_normalize_cp(inv_cp), path=f'data/{CONDITION}_svgs/')
-    system_call = f'cd data/{CONDITION}_inv_svgs/; /usr/bin/ffmpeg -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_inv.flac ../{CONDITION}_inv.mp4'
+    util.export_svgs(util.inv_normalize_cp(inv_cp), path=f'data/{CONDITION}_inv_svgs/')
+    system_call = f'cd data/{CONDITION}_inv_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_inv.flac ../{CONDITION}_inv.mp4'
     os.system(system_call)
 
     os.makedirs(f'data/{CONDITION}_planned_svgs/')
     util.export_svgs(util.inv_normalize_cp(planned_cp), path=f'data/{CONDITION}_planned_svgs/')
-    system_call = f'cd data/{CONDITION}_planned_svgs/; /usr/bin/ffmpeg -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_planned.flac ../{CONDITION}_planned.mp4'
+    system_call = f'cd data/{CONDITION}_planned_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_planned.flac ../{CONDITION}_planned.mp4'
     os.system(system_call)
 
 
