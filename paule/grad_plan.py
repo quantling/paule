@@ -138,8 +138,15 @@ class Paule():
         else:
             self.cp_gen_model = models.Generator().double()
             self.cp_gen_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/cp_gan/conditional_trained_cp_generator_whole_critic_it_5_10_20_40_80_100_366.pt"), map_location=self.device))
-
         self.cp_gen_model = self.cp_gen_model.to(self.device)
+
+        # MEL GENerative MODEL
+        if mel_gen_model:
+            self.mel_gen_model = mel_gen_model
+        else:
+            self.mel_gen_model = models.Generator(output_size=60).double()
+            self.mel_gen_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_315.pt"), map_location=self.device))
+        self.mel_gen_model = self.mel_gen_model.to(self.device)
 
 
         self.data = pd.read_pickle(os.path.join(DIR, 'data/full_data_tino.pkl'))
@@ -149,32 +156,69 @@ class Paule():
 
 
 
-    def plan_resynth(self, wave_name, *, inv_cp=None, target_semvec=None, plot=False, use_semantics=True, log_semantics=False, n_outer=40, n_inner=200, reduce_noise=False):
-        if isinstance(wave_name, str):
-            target_sig, target_sr = sf.read(wave_name)
+    def plan_resynth(self, *, target_acoustic=None, target_semvec=None,
+            target_seq_length=None, inv_cp=None,
+            initialize_from='semvec', objective='acoustic_semvec',
+            n_outer=40, n_inner=200, plot=False, log_semantics=False,
+            reduce_noise=False, seed=None):
+        """
+        plans resynthesis cp trajectories.
+
+        Parameters
+        ----------
+        target_acoustic : str; (target_sig, target_sr)
+        target_semvec : torch.tensor
+        target_seq_length : int (None)
+        inv_cp : torch.tensor
+        initialize_from : {'semvec', 'acoustic'}
+        objective : {'acoustic_semvec', 'acoustic', 'semvec'}
+        n_outer : int (40)
+        n_inner : int (200)
+        plot : bool (False)
+        log_semantics : bool (False)
+        reduce_noise : bool (False)
+
+        """
+        if seed:
+            torch.manual_seed(seed)
+        if target_acoustic is None and target_semvec is None:
+            raise ValueError("Either target_acoustic or target_semvec has to be not None.")
+
+        if isinstance(target_acoustic, str):
+            target_sig, target_sr = sf.read(target_acoustic)
             if len(target_sig.shape) == 2:
                 target_sig = stereo_to_mono(target_sig)
             assert target_sr == 44100, 'sampling rate of wave name must be 44100'
             if reduce_noise:
                 target_noise = target_sig[0:5000]
                 target_sig = noisereduce.reduce_noise(target_sig, target_noise)
+        elif target_semvec is None:
+            pass
         else:
-            target_sig = wave_name
-            target_sr = 44100
-        target_mel = librosa_melspec(target_sig, target_sr)
-        target_mel = normalize_mel_librosa(target_mel)
-        target_mel -= target_mel.min()
-        target_mel.shape = (1, ) + target_mel.shape
-        target_mel = torch.from_numpy(target_mel)
+            target_sig, target_sr = target_acoustic
+
+        if target_acoustic is None and target_seq_length is None:
+            raise ValueError("if target_acoustic is None you need to give a target_seq_length")
+        if target_acoustic is None:
+            mel_gen_noise = torch.randn(1, 1, 100).to(self.device)
+            mel_gen_semvec = torch.tensor(target_semvec).view(1, 300)
+            target_mel = self.mel_gen_model(mel_gen_noise, target_seq_length, mel_gen_semvec)
+        else:
+            target_mel = librosa_melspec(target_sig, target_sr)
+            target_mel = normalize_mel_librosa(target_mel)
+            target_mel -= target_mel.min()
+            target_mel.shape = (1, ) + target_mel.shape
+            target_mel = torch.from_numpy(target_mel)
+            target_seq_length = target_mel.shape[1]
         target_mel= target_mel.to(self.device)
 
-        if use_semantics or log_semantics:
-            if target_semvec is None:
-                with torch.no_grad():
-                    target_semvec = self.embedder(target_mel, (torch.tensor(target_mel.shape[1]),))
-            else:
-                target_semvec = target_semvec.clone()
-            target_semvec = target_semvec.to(self.device)
+
+        if target_semvec is None:
+            with torch.no_grad():
+                target_semvec = self.embedder(target_mel, (torch.tensor(target_mel.shape[1]),))
+        else:
+            target_semvec = target_semvec.clone()
+        target_semvec = target_semvec.to(self.device)
 
 
         if plot:
@@ -194,12 +238,19 @@ class Paule():
 
         # 1.1 predict inv_cp
         if inv_cp is None:
-            xx = target_mel.detach().clone().to(self.device)
-            with torch.no_grad():
-                inv_cp = self.inv_model(xx)
-            inv_cp = inv_cp.detach().cpu().numpy()
-            inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
-            del xx
+            if initialize_from == 'acoustic':
+                xx = target_mel.detach().clone().to(self.device)
+                with torch.no_grad():
+                    inv_cp = self.inv_model(xx)
+                inv_cp = inv_cp.detach().cpu().numpy()
+                inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
+                del xx
+            elif initialize_from == 'semvec':
+                cp_gen_noise = torch.randn(1, 1, 100).to(self.device)
+                cp_gen_semvec = torch.tensor(target_semvec).view(1, 300)
+                inv_cp = self.cp_gen_model(cp_gen_noise, 2 * target_seq_length, cp_gen_semvec)
+            else:
+                raise ValueError("initialize_from has to be either 'acoutics' or 'semvec'")
         else:
             assert inv_cp.shape[0] == target_mel.shape[1] * 2
 
@@ -215,52 +266,56 @@ class Paule():
         # 1.4 adaptive weights for loss
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
-        if use_semantics or log_semantics:
-            with torch.no_grad():
-                pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
-            assert pred_semvec.shape == target_semvec.shape
+            pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
+        assert pred_semvec.shape == target_semvec.shape
         initial_mel_loss = mse_loss(pred_mel, target_mel)
         initial_jerk_loss = jerk_loss(xx_new)
         initial_velocity_loss = velocity_loss(xx_new)
-        if use_semantics or log_semantics:
-            initial_semvec_loss = mse_loss(pred_semvec, target_semvec)
+        initial_semvec_loss = mse_loss(pred_semvec, target_semvec)
         jerk_weight = float(0.5 * initial_mel_loss / initial_jerk_loss)
         velocity_weight = float(0.5 * initial_mel_loss / initial_velocity_loss)
-        if use_semantics or log_semantics:
-            semvec_weight = float(1.0 * initial_mel_loss / initial_semvec_loss)
-            del initial_semvec_loss
+        semvec_weight = float(1.0 * initial_mel_loss / initial_semvec_loss)
+        del initial_semvec_loss
 
         del initial_mel_loss, initial_jerk_loss, initial_velocity_loss
 
-        if use_semantics:
+        if objective == 'acoustic_semvec':
             def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps):
                 return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
                         + mse_loss(pred_mel, target_mel)
                         + semvec_weight * mse_loss(pred_semvec, target_semvec))
-        else:
+        elif objective == 'acoustic':
             def criterion(pred_mel, target_mel, cps):
                 return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
                         + mse_loss(pred_mel, target_mel))
+        elif objective == 'semvec':
+            def criterion(pred_semvec, target_semvec, cps):
+                return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
+                        + semvec_weight * mse_loss(pred_semvec, target_semvec))
+        else:
+            raise ValueError("objective has to be one of 'acoustic_semvec', 'acoustic' or 'semvec'")
 
         # continue learning
         for _ in tqdm(range(n_outer)):
             # imagine and plan
             for ii in range(n_inner):
                 pred_mel = self.pred_model(xx_new)
-                if use_semantics or (log_semantics and ii % 20 == 0):
+                if objective in ('semvec', 'acoustic_semvec') or (log_semantics and ii % 20 == 0):
                     seq_length = pred_mel.shape[1]
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
 
-                if use_semantics:
-                    discrepancy = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
-                else:
+                if objective == 'acoustic':
                     discrepancy = criterion(pred_mel, target_mel, xx_new)
+                elif objective == 'acoustic_semvec':
+                    discrepancy = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
+                elif objective == 'semvec':
+                    discrepancy = criterion(pred_semvec, target_semvec, xx_new)
                 discrepancy.backward()
 
                 if ii % 20 == 0:
                     loss_steps.append(float(discrepancy.item()))
                     loss_mel_steps.append(float(mse_loss(pred_mel, target_mel)))
-                    if use_semantics or log_semantics:
+                    if objective in ('semvec', 'acoustic_semvec') or log_semantics:
                         loss_semvec_steps.append(float(semvec_weight * mse_loss(pred_semvec, target_semvec)))
                     loss_jerk_steps.append(float(jerk_weight * jerk_loss(xx_new)))
                     loss_velocity_steps.append(float(velocity_weight * velocity_loss(xx_new)))
