@@ -160,7 +160,7 @@ class Paule():
             target_seq_length=None, inv_cp=None,
             initialize_from='semvec', objective='acoustic_semvec',
             n_outer=40, n_inner=200, plot=False, log_semantics=False,
-            reduce_noise=False, seed=None):
+            reduce_noise=False, seed=None, verbose=False):
         """
         plans resynthesis cp trajectories.
 
@@ -177,6 +177,7 @@ class Paule():
         plot : bool (False)
         log_semantics : bool (False)
         reduce_noise : bool (False)
+        verbose : bool (False)
 
         """
         if seed:
@@ -322,16 +323,44 @@ class Paule():
 
 
                 grad = xx_new.grad.detach()
+                if grad.max() > 10:
+                    if verbose:
+                        print("WARNING: gradient is larger than 10")
+                    grad[grad > 10.0] = 10.0
+                if grad.min() < -10:
+                    if verbose:
+                        print("WARNING: gradient is smaller than -10")
+                    grad[grad < -10.0] = -10.0
+
                 xx_new = xx_new.detach()
                 xx_new = xx_new - learning_rate * grad
-
                 xx_new.requires_grad_()
                 xx_new.retain_grad()
+                if xx_new.max() > 1.05:
+                    if verbose:
+                        print("WARNING: planned cps are larger than 1.05")
+                    xx_new = xx_new.detach()
+                    xx_new[xx_new > 1.02] = 1.02
+                    xx_new.requires_grad_()
+                    xx_new.retain_grad()
+                if xx_new.min() < -1.05:
+                    if verbose:
+                        print("WARNING: planned cps are smaller than -1.05")
+                    xx_new = xx_new.detach()
+                    xx_new[xx_new < -1.02] = -1.02
+                    xx_new.requires_grad_()
+                    xx_new.retain_grad()
 
             # execute and continue learning
             sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :].detach().cpu().numpy()))
-            #if any(np.isnan(sig)):
-            #    sig = np.zeros_like(sig)
+            if any(np.isnan(sig)):
+                print(f"xx_new.max() {xx_new.max()}")
+                print(f"xx_new.min() {xx_new.min()}")
+                print(f"WARNING: {np.sum(np.isnan(sig))} NaNs in synthesis: zero cps and sig")
+                sig = np.zeros_like(sig)
+                xx_new = torch.zeros_like(xx_new)
+                xx_new.requires_grad_()
+                xx_new.retain_grad()
             prod_mel = librosa_melspec(sig, sr)
             prod_mel = normalize_mel_librosa(prod_mel)
             prod_mel.shape = pred_mel.shape
