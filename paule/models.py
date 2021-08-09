@@ -1,9 +1,9 @@
 import torch
 
 
-###############################################################################################
-######################################### Modules & Helper Functions ##########################
-###############################################################################################
+########################################################################################################################
+######################################### Modules & Helper Functions ###################################################
+########################################################################################################################
 def time_conv_Allx1(input_units):
     """Allx1 convolution over time (taking all input channels into account at each timestep"""
     return torch.nn.Conv1d(input_units, input_units, kernel_size=1, padding=0, groups=1)
@@ -419,7 +419,7 @@ class Linear_Model(torch.nn.Module):
         if self.on_full_sequence:
             x = self.add_vel_and_acc_info(x)
         else:
-            x = x.reshape((x.shape[0],-1))
+            x = x.reshape((x.shape[0],1,-1))
         output = self.linear(x)
         if self.on_full_sequence:
             output = output.permute(0, 2, 1)
@@ -432,15 +432,22 @@ class Non_Linear_Model(torch.nn.Module):
     def __init__(self,
                  input_channel=30,
                  output_channel=60,
-                 hidden_units=180,
+                 hidden_units=8192,
                  activation_function=torch.nn.LeakyReLU(),
+                 mode = "pred",
                  on_full_sequence=False):
         super().__init__()
         self.on_full_sequence = on_full_sequence
+        assert mode in ["pred",
+                          "inv"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
+        self.mode = mode
         if self.on_full_sequence:
             self.input_channel = input_channel * 3
             self.add_vel_and_acc_info = add_vel_and_acc_info
-            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+            if self.mode == "pred":
+                self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+            else:
+                self.double_sequence = double_sequence
         else:
             self.input_channel = input_channel * 2
 
@@ -454,14 +461,18 @@ class Non_Linear_Model(torch.nn.Module):
         if self.on_full_sequence:
             x = self.add_vel_and_acc_info(x)
         else:
-            x = x.reshape((x.shape[0], -1))
+            x = x.reshape((x.shape[0],1, -1))
         output = self.non_linear(x)
         output = self.activation_function(output)
         output = self.linear(output)
         if self.on_full_sequence:
-            output = output.permute(0, 2, 1)
-            output = self.half_sequence(output)
-            output = output.permute(0, 2, 1)
+            if self.mode == "pred":
+                output = output.permute(0, 2, 1)
+                output = self.half_sequence(output)
+                output = output.permute(0, 2, 1)
+            else:
+                output = self.double_sequence(output)
+
         return output
 
 
