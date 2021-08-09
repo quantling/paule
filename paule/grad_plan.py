@@ -128,8 +128,8 @@ class Paule():
         if embedder:
             self.embedder = embedder
         else:
-            self.embedder = models.MelEmbeddingModel_MelSmoothResidualUpsampling(mel_smooth_layers=0).double()
-            self.embedder.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/embedder/model_embed_model_0_4_180_8192_rmse_lr_00001_200.pt"), map_location=self.device))
+            self.embedder = models.MelEmbeddingModel_MelSmoothResidualUpsampling(mel_smooth_layers=3).double()
+            self.embedder.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/embedder/model_recorded_embed_model_3_4_180_8192_rmse_lr_00001_400.pt"), map_location=self.device))
         self.embedder = self.embedder.to(self.device)
 
         # CP GENerative MODEL
@@ -353,6 +353,7 @@ class Paule():
 
             # execute and continue learning
             sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :].detach().cpu().numpy()))
+            # TODO replace zeroing with constant schwa sound
             if any(np.isnan(sig)):
                 print(f"xx_new.max() {xx_new.max()}")
                 print(f"xx_new.min() {xx_new.min()}")
