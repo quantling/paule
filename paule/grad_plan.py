@@ -49,7 +49,7 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-from .util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss
+from .util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss, mel_to_sig
 from . import models
 
 DIR = os.path.dirname(__file__)
@@ -193,7 +193,7 @@ class Paule():
             if reduce_noise:
                 target_noise = target_sig[0:5000]
                 target_sig = noisereduce.reduce_noise(target_sig, target_noise)
-        elif target_semvec is None:
+        elif target_acoustic is None:
             pass
         else:
             target_sig, target_sr = target_acoustic
@@ -202,8 +202,12 @@ class Paule():
             raise ValueError("if target_acoustic is None you need to give a target_seq_length")
         if target_acoustic is None:
             mel_gen_noise = torch.randn(1, 1, 100).to(self.device)
-            mel_gen_semvec = torch.tensor(target_semvec).view(1, 300)
+            if not isinstance(target_semvec, torch.Tensor):
+                target_semvec = torch.tensor(target_semvec)
+            mel_gen_semvec = target_semvec.view(1, 300).detach().clone()
             target_mel = self.mel_gen_model(mel_gen_noise, target_seq_length, mel_gen_semvec)
+            target_mel = target_mel.detach().clone()
+            target_sig, target_sr = mel_to_sig(target_mel.view(target_mel.shape[1], target_mel.shape[2]).cpu().numpy())
         else:
             target_mel = librosa_melspec(target_sig, target_sr)
             target_mel = normalize_mel_librosa(target_mel)
@@ -248,8 +252,12 @@ class Paule():
                 del xx
             elif initialize_from == 'semvec':
                 cp_gen_noise = torch.randn(1, 1, 100).to(self.device)
-                cp_gen_semvec = torch.tensor(target_semvec).view(1, 300)
+                if not isinstance(target_semvec, torch.Tensor):
+                    target_semvec = torch.tensor(target_semvec)
+                cp_gen_semvec = target_semvec.view(1, 300).detach().clone()
                 inv_cp = self.cp_gen_model(cp_gen_noise, 2 * target_seq_length, cp_gen_semvec)
+                inv_cp = inv_cp.detach().cpu().numpy()
+                inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
             else:
                 raise ValueError("initialize_from has to be either 'acoutics' or 'semvec'")
         else:
@@ -311,6 +319,8 @@ class Paule():
                     discrepancy = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
                 elif objective == 'semvec':
                     discrepancy = criterion(pred_semvec, target_semvec, xx_new)
+                else:
+                    raise ValueError(f'unkown objective {objective}')
                 discrepancy.backward()
 
                 if ii % 20 == 0:
