@@ -224,6 +224,34 @@ def audio_padding(sig, samplerate, winlen=0.010):
     return pad_signal
 
 
+def mel_to_sig(mel, mel_min=0.0):
+    """
+    creates audio from a normlised log mel spectrogram.
+
+    Parameters
+    ==========
+    mel : np.array
+        normalised log mel spectrogram (n_mel, seq_length)
+    mel_min : float
+        original min value (default: 0.0)
+
+    Returns
+    =======
+    (sig, sampling_rate) : (np.array, int)
+
+    """
+    mel = mel + mel_min
+    mel = inv_normalize_mel_librosa(mel)
+    mel = np.array(mel.T, order='C')
+    mel = librosa.db_to_amplitude(mel, ref=0.15)
+    sig = librosa.feature.inverse.mel_to_audio(mel, sr=44100, n_fft=1024,
+                                             hop_length=220, win_length=1024,
+                                             power=1.0, fmin=10, fmax=12000)
+    # there are always 110 data points missing compared to the speak function using VTL
+    # add 55 zeros to the beginning and the end
+    sig = np.concatenate((np.zeros(55), sig, np.zeros(55)))
+    return (sig, 44100)
+
 
 def plot_cp(cp, file_name):
     fig = plt.figure(figsize=(10, 10))
