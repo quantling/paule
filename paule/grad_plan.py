@@ -170,7 +170,8 @@ class Paule():
         target_semvec : torch.tensor
         target_seq_length : int (None)
         inv_cp : torch.tensor
-        initialize_from : {'semvec', 'acoustic'}
+        initialize_from : {'semvec', 'acoustic', None}
+            can be None, if inv_cp are given
         objective : {'acoustic_semvec', 'acoustic', 'semvec'}
         n_outer : int (40)
         n_inner : int (200)
@@ -259,9 +260,9 @@ class Paule():
                 inv_cp = inv_cp.detach().cpu().numpy()
                 inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
             else:
-                raise ValueError("initialize_from has to be either 'acoutics' or 'semvec'")
+                raise ValueError("initialize_from has to be either 'acoustic' or 'semvec'")
         else:
-            assert inv_cp.shape[0] == target_mel.shape[1] * 2
+            assert inv_cp.shape[0] == target_mel.shape[1] * 2 , f"inv_cp {inv_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}"
 
         # 1.3 create initial xx
         #inv_cp = np.zeros_like(inv_cp)
@@ -331,8 +332,9 @@ class Paule():
                     loss_jerk_steps.append(float(jerk_weight * jerk_loss(xx_new)))
                     loss_velocity_steps.append(float(velocity_weight * velocity_loss(xx_new)))
 
-
                 grad = xx_new.grad.detach()
+                if verbose:
+                    print(f"grad.abs().max() {grad.abs().max()}")
                 if grad.max() > 10:
                     if verbose:
                         print("WARNING: gradient is larger than 10")
@@ -360,6 +362,13 @@ class Paule():
                     xx_new[xx_new < -1.02] = -1.02
                     xx_new.requires_grad_()
                     xx_new.retain_grad()
+
+            ## adjust relative loss weights
+            #mel_loss = mse_loss(pred_mel, target_mel)
+            #jerk_weight = 5 * float(mel_loss / jerk_loss(xx_new))
+            #velocity_weight = 5 * float(mel_loss / velocity_loss(xx_new))
+            #semvec_weight = float(mel_loss / mse_loss(pred_semvec, target_semvec))
+            #del mel_loss
 
             # execute and continue learning
             sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :].detach().cpu().numpy()))
