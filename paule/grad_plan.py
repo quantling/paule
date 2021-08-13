@@ -36,7 +36,7 @@ from tqdm import tqdm
 import torch
 from torch.distributions.normal import Normal
 from torch.utils import data
-from torch.nn import L1Loss
+from torch.nn import L1Loss, MSELoss
 from matplotlib import pyplot as plt
 import soundfile as sf
 import noisereduce
@@ -59,6 +59,7 @@ DIR = os.path.dirname(__file__)
 #    return torch.sum((target - pred).pow(2))
 
 mse_loss = RMSELoss()
+l2 = MSELoss()
 l1 = L1Loss()
 
 
@@ -69,7 +70,7 @@ def velocity_loss(pred):
     velocity_lag1 = velocity_lag1.pow(2)
     #velocity_lag2 = velocity_lag2.pow(2)
     #velocity_lag4 = velocity_lag4.pow(2)
-    return l1(velocity_lag1, torch.zeros_like(velocity_lag1))
+    return l2(velocity_lag1, torch.zeros_like(velocity_lag1))
     #return torch.sum(velocity_lag1)  #+ 0.5 * torch.sum(velocity_lag2) + 0.25 * torch.sum(velocity_lag4)
 
 
@@ -86,7 +87,7 @@ def jerk_loss(pred):
     jerk_lag1 = jerk_lag1.pow(2)
     #jerk_lag2 = jerk_lag2.pow(2)
     #jerk_lag4 = jerk_lag4.pow(2)
-    return l1(jerk_lag1, torch.zeros_like(jerk_lag1))
+    return l2(jerk_lag1, torch.zeros_like(jerk_lag1))
     #return torch.sum(jerk_lag1)  #+ 0.25 * torch.sum(jerk_lag2)  + 1/16 * torch.sum(jerk_lag4)
 
 
@@ -231,7 +232,7 @@ class Paule():
             librosa.display.specshow(target_mel[-1, :, :].detach().cpu().numpy().T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000)
             plt.show()
 
-        learning_rate = 0.01
+        learning_rate = 0.001
 
         # 1.0 create variables for logging
         loss_prod_steps = list()
@@ -306,7 +307,7 @@ class Paule():
             raise ValueError("objective has to be one of 'acoustic_semvec', 'acoustic' or 'semvec'")
 
         # continue learning
-        for _ in tqdm(range(n_outer)):
+        for ii_outer in tqdm(range(n_outer)):
             # imagine and plan
             for ii in range(n_inner):
                 pred_mel = self.pred_model(xx_new)
@@ -363,12 +364,13 @@ class Paule():
                     xx_new.requires_grad_()
                     xx_new.retain_grad()
 
-            ## adjust relative loss weights
-            #mel_loss = mse_loss(pred_mel, target_mel)
-            #jerk_weight = 5 * float(mel_loss / jerk_loss(xx_new))
-            #velocity_weight = 5 * float(mel_loss / velocity_loss(xx_new))
-            #semvec_weight = float(mel_loss / mse_loss(pred_semvec, target_semvec))
-            #del mel_loss
+            # adjust relative loss weights
+            #if ii_outer % 5 == 0:
+            #    mel_loss = mse_loss(pred_mel, target_mel)
+            #    jerk_weight = float(0.5 * mel_loss / jerk_loss(xx_new))
+            #    velocity_weight = float(0.5 * mel_loss / velocity_loss(xx_new))
+            #    semvec_weight = float(1.0 * mel_loss / mse_loss(pred_semvec, target_semvec))
+            #    del mel_loss
 
             # execute and continue learning
             sig, sr = speak(inv_normalize_cp(xx_new[-1, :, :].detach().cpu().numpy()))
