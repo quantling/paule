@@ -58,37 +58,34 @@ DIR = os.path.dirname(__file__)
 #def mse_loss(pred, target):
 #    return torch.sum((target - pred).pow(2))
 
-mse_loss = RMSELoss()
+rmse_loss = RMSELoss()
 l2 = MSELoss()
 l1 = L1Loss()
 
 
-def velocity_loss(pred):
-    velocity_lag1 = pred[:, 1:, :] - pred[:, :-1, :]
-    #velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
-    #velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
-    velocity_lag1 = velocity_lag1.pow(2)
-    #velocity_lag2 = velocity_lag2.pow(2)
-    #velocity_lag4 = velocity_lag4.pow(2)
-    return l2(velocity_lag1, torch.zeros_like(velocity_lag1))
-    #return torch.sum(velocity_lag1)  #+ 0.5 * torch.sum(velocity_lag2) + 0.25 * torch.sum(velocity_lag4)
+def get_vel_acc_jerk(trajectory, *, lag=1):
+    """returns (velocity, acceleration, jerk) tuple"""
+    velocity = (trajectory[:, lag:, :] - trajectory[:, :-lag, :]) / lag
+    acc = (velocity[:, 1:, :] - velocity[:, :-1, :]) / 1.0
+    jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
+    return velocity, acc, jerk
 
 
-def jerk_loss(pred):
-    velocity_lag1 = pred[:, 1:, :] - pred[:, :-1, :]
-    #velocity_lag2 = pred[:, 2:, :] - pred[:, :-2, :]
-    #velocity_lag4 = pred[:, 4:, :] - pred[:, :-4, :]
-    acceleration_lag1 = velocity_lag1[:, 1:, :] - velocity_lag1[:, :-1, :]
-    #acceleration_lag2 = velocity_lag2[:, 1:, :] - velocity_lag2[:, :-1, :]
-    #acceleration_lag4 = velocity_lag4[:, 1:, :] - velocity_lag4[:, :-1, :]
-    jerk_lag1 = acceleration_lag1[:, 1:, :] - acceleration_lag1[:, :-1, :]
-    #jerk_lag2 = acceleration_lag2[:, 1:, :] - acceleration_lag2[:, :-1, :]
-    #jerk_lag4 = acceleration_lag4[:, 1:, :] - acceleration_lag4[:, :-1, :]
-    jerk_lag1 = jerk_lag1.pow(2)
-    #jerk_lag2 = jerk_lag2.pow(2)
-    #jerk_lag4 = jerk_lag4.pow(2)
-    return l2(jerk_lag1, torch.zeros_like(jerk_lag1))
-    #return torch.sum(jerk_lag1)  #+ 0.25 * torch.sum(jerk_lag2)  + 1/16 * torch.sum(jerk_lag4)
+def velocity_jerk_loss(pred):
+    """returns (velocity_loss, jerk_loss) tuple"""
+    vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
+    vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
+    vel4, acc4, jerk4 = get_vel_acc_jerk(pred, lag=4)
+
+    # in the lag calculation higher lags are already normalised to standard
+    # units
+    velocity_loss = (l2(vel1, torch.zeros_like(vel1))
+                     + l2(vel2, torch.zeros_like(vel2))
+                     + l2(vel4, torch.zeros_like(vel4)))
+    jerk_loss = (l2(jerk1, torch.zeros_like(jerk1))
+                     + l2(jerk2, torch.zeros_like(jerk2))
+                     + l2(jerk4, torch.zeros_like(jerk4)))
+    return velocity_loss, jerk_loss
 
 
 class Paule():
@@ -153,8 +150,7 @@ class Paule():
         self.data = pd.read_pickle(os.path.join(DIR, 'data/full_data_tino.pkl'))
 
         self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
-        self.pred_criterion = mse_loss
-
+        self.pred_criterion = rmse_loss
 
 
     def plan_resynth(self, *, target_acoustic=None, target_semvec=None,
@@ -242,7 +238,6 @@ class Paule():
         loss_jerk_steps = list()
         loss_velocity_steps = list()
 
-
         # 1.1 predict inv_cp
         if inv_cp is None:
             if initialize_from == 'acoustic':
@@ -279,10 +274,9 @@ class Paule():
             pred_mel = self.pred_model(xx_new)
             pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
         assert pred_semvec.shape == target_semvec.shape
-        initial_mel_loss = mse_loss(pred_mel, target_mel)
-        initial_jerk_loss = jerk_loss(xx_new)
-        initial_velocity_loss = velocity_loss(xx_new)
-        initial_semvec_loss = mse_loss(pred_semvec, target_semvec)
+        initial_mel_loss = rmse_loss(pred_mel, target_mel)
+        initial_velocity_loss, initial_jerk_loss = velocity_jerk_loss(xx_new)
+        initial_semvec_loss = rmse_loss(pred_semvec, target_semvec)
         jerk_weight = float(0.5 * initial_mel_loss / initial_jerk_loss)
         velocity_weight = float(0.5 * initial_mel_loss / initial_velocity_loss)
         semvec_weight = float(1.0 * initial_mel_loss / initial_semvec_loss)
@@ -292,17 +286,20 @@ class Paule():
 
         if objective == 'acoustic_semvec':
             def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps):
-                return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
-                        + mse_loss(pred_mel, target_mel)
-                        + semvec_weight * mse_loss(pred_semvec, target_semvec))
+                velocity_loss, jerk_loss = velocity_jerk_loss(cps)
+                return (velocity_weight * velocity_loss + jerk_weight * jerk_loss
+                        + rmse_loss(pred_mel, target_mel)
+                        + semvec_weight * rmse_loss(pred_semvec, target_semvec))
         elif objective == 'acoustic':
             def criterion(pred_mel, target_mel, cps):
-                return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
-                        + mse_loss(pred_mel, target_mel))
+                velocity_loss, jerk_loss = velocity_jerk_loss(cps)
+                return (velocity_weight * velocity_loss + jerk_weight * jerk_loss
+                        + rmse_loss(pred_mel, target_mel))
         elif objective == 'semvec':
             def criterion(pred_semvec, target_semvec, cps):
-                return (velocity_weight * velocity_loss(cps) + jerk_weight * jerk_loss(cps)
-                        + semvec_weight * mse_loss(pred_semvec, target_semvec))
+                velocity_loss, jerk_loss = velocity_jerk_loss(cps)
+                return (velocity_weight * velocity_loss + jerk_weight * jerk_loss
+                        + semvec_weight * rmse_loss(pred_semvec, target_semvec))
         else:
             raise ValueError("objective has to be one of 'acoustic_semvec', 'acoustic' or 'semvec'")
 
@@ -327,11 +324,12 @@ class Paule():
 
                 if ii % 20 == 0:
                     loss_steps.append(float(discrepancy.item()))
-                    loss_mel_steps.append(float(mse_loss(pred_mel, target_mel)))
+                    loss_mel_steps.append(float(rmse_loss(pred_mel, target_mel)))
                     if objective in ('semvec', 'acoustic_semvec') or log_semantics:
-                        loss_semvec_steps.append(float(semvec_weight * mse_loss(pred_semvec, target_semvec)))
-                    loss_jerk_steps.append(float(jerk_weight * jerk_loss(xx_new)))
-                    loss_velocity_steps.append(float(velocity_weight * velocity_loss(xx_new)))
+                        loss_semvec_steps.append(float(semvec_weight * rmse_loss(pred_semvec, target_semvec)))
+                    velocity_loss, jerk_loss = velocity_jerk_loss(xx_new)
+                    loss_jerk_steps.append(float(jerk_weight * jerk_loss))
+                    loss_velocity_steps.append(float(velocity_weight * velocity_loss))
 
                 grad = xx_new.grad.detach()
                 if verbose:
@@ -366,10 +364,10 @@ class Paule():
 
             # adjust relative loss weights
             #if ii_outer % 5 == 0:
-            #    mel_loss = mse_loss(pred_mel, target_mel)
+            #    mel_loss = rmse_loss(pred_mel, target_mel)
             #    jerk_weight = float(0.5 * mel_loss / jerk_loss(xx_new))
             #    velocity_weight = float(0.5 * mel_loss / velocity_loss(xx_new))
-            #    semvec_weight = float(1.0 * mel_loss / mse_loss(pred_semvec, target_semvec))
+            #    semvec_weight = float(1.0 * mel_loss / rmse_loss(pred_semvec, target_semvec))
             #    del mel_loss
 
             # execute and continue learning
@@ -395,7 +393,7 @@ class Paule():
             pred_loss = self.pred_criterion(pred_mel, prod_mel)
             pred_loss.backward()
             self.pred_optimizer.step()
-            prod_loss = mse_loss(prod_mel, target_mel)
+            prod_loss = rmse_loss(prod_mel, target_mel)
             print(f"PRED LOSS: {discrepancy.item():.2e}   PROD LOSS: {prod_loss.item():.2e}")
             loss_prod_steps.append(prod_loss.item())
 
