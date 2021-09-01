@@ -71,7 +71,7 @@ def get_vel_acc_jerk(trajectory, *, lag=1):
     return velocity, acc, jerk
 
 
-def velocity_jerk_loss(pred):
+def velocity_jerk_loss(pred, *, guiding_factor=0.9):
     """returns (velocity_loss, jerk_loss) tuple"""
     vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
     vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
@@ -79,12 +79,21 @@ def velocity_jerk_loss(pred):
 
     # in the lag calculation higher lags are already normalised to standard
     # units
-    velocity_loss = (l2(vel1, torch.zeros_like(vel1))
-                     + l2(vel2, torch.zeros_like(vel2))
-                     + l2(vel4, torch.zeros_like(vel4)))
-    jerk_loss = (l2(jerk1, torch.zeros_like(jerk1))
-                     + l2(jerk2, torch.zeros_like(jerk2))
-                     + l2(jerk4, torch.zeros_like(jerk4)))
+    if guiding_factor is None:
+        velocity_loss = (rmse(vel1, torch.zeros_like(vel1))
+                         + rmse(vel2, torch.zeros_like(vel2))
+                         + rmse(vel4, torch.zeros_like(vel4)))
+        jerk_loss = (rmse(jerk1, torch.zeros_like(jerk1))
+                     + rmse(jerk2, torch.zeros_like(jerk2))
+                     + rmse(jerk4, torch.zeros_like(jerk4)))
+    else:
+        assert 0.0 < guiding_factor < 1.0
+        velocity_loss = (rmse(vel1, guiding_factor * vel1.detach().copy())
+                         + rmse(vel2, guiding_factor * vel2.detach().copy())
+                         + rmse(vel4, guiding_factor * vel4.detach().copy()))
+        jerk_loss = (rmse(jerk1, guiding_factor * jerk1.detach().copy())
+                     + rmse(jerk2, guiding_factor * jerk2.detach().copy())
+                     + rmse(jerk4, guiding_factor * jerk4.detach().copy()))
     return velocity_loss, jerk_loss
 
 
@@ -146,17 +155,18 @@ class Paule():
             self.mel_gen_model.load_state_dict(torch.load(os.path.join(DIR, "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_315.pt"), map_location=self.device))
         self.mel_gen_model = self.mel_gen_model.to(self.device)
 
+        # DATA to continue learning
+        # created from geco_embedding_preprocessed_balanced_vectors_checked_extrem_long_removed_valid_matched_prot4
+        self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
 
-        self.data = pd.read_pickle(os.path.join(DIR, 'data/full_data_tino.pkl'))
-
-        self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
+        self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.0001)
         self.pred_criterion = rmse_loss
 
 
     def plan_resynth(self, *, target_acoustic=None, target_semvec=None,
             target_seq_length=None, inv_cp=None,
             initialize_from='semvec', objective='acoustic_semvec',
-            n_outer=40, n_inner=200, plot=False, log_semantics=False,
+            n_outer=40, n_inner=100, plot=False, log_semantics=False,
             reduce_noise=False, seed=None, verbose=False):
         """
         plans resynthesis cp trajectories.
@@ -171,7 +181,7 @@ class Paule():
             can be None, if inv_cp are given
         objective : {'acoustic_semvec', 'acoustic', 'semvec'}
         n_outer : int (40)
-        n_inner : int (200)
+        n_inner : int (100)
         plot : bool (False)
         log_semantics : bool (False)
         reduce_noise : bool (False)
@@ -398,6 +408,7 @@ class Paule():
             loss_prod_steps.append(prod_loss.item())
 
             # update with 10 old samples
+            # TODO: update only 8 with one batch as original training is with batchsize = 8
             for index, (xx, norm_mel) in self.data[['cp_norm', 'melspec_norm']].sample(10).iterrows():
                 self.pred_optimizer.zero_grad()
 
