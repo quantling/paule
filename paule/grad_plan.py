@@ -80,20 +80,20 @@ def velocity_jerk_loss(pred, *, guiding_factor=0.9):
     # in the lag calculation higher lags are already normalised to standard
     # units
     if guiding_factor is None:
-        velocity_loss = (rmse(vel1, torch.zeros_like(vel1))
-                         + rmse(vel2, torch.zeros_like(vel2))
-                         + rmse(vel4, torch.zeros_like(vel4)))
-        jerk_loss = (rmse(jerk1, torch.zeros_like(jerk1))
-                     + rmse(jerk2, torch.zeros_like(jerk2))
-                     + rmse(jerk4, torch.zeros_like(jerk4)))
+        velocity_loss = (rmse_loss(vel1, torch.zeros_like(vel1))
+                         + rmse_loss(vel2, torch.zeros_like(vel2))
+                         + rmse_loss(vel4, torch.zeros_like(vel4)))
+        jerk_loss = (rmse_loss(jerk1, torch.zeros_like(jerk1))
+                     + rmse_loss(jerk2, torch.zeros_like(jerk2))
+                     + rmse_loss(jerk4, torch.zeros_like(jerk4)))
     else:
         assert 0.0 < guiding_factor < 1.0
-        velocity_loss = (rmse(vel1, guiding_factor * vel1.detach().copy())
-                         + rmse(vel2, guiding_factor * vel2.detach().copy())
-                         + rmse(vel4, guiding_factor * vel4.detach().copy()))
-        jerk_loss = (rmse(jerk1, guiding_factor * jerk1.detach().copy())
-                     + rmse(jerk2, guiding_factor * jerk2.detach().copy())
-                     + rmse(jerk4, guiding_factor * jerk4.detach().copy()))
+        velocity_loss = (rmse_loss(vel1, guiding_factor * vel1.detach().clone())
+                         + rmse_loss(vel2, guiding_factor * vel2.detach().clone())
+                         + rmse_loss(vel4, guiding_factor * vel4.detach().clone()))
+        jerk_loss = (rmse_loss(jerk1, guiding_factor * jerk1.detach().clone())
+                     + rmse_loss(jerk2, guiding_factor * jerk2.detach().clone())
+                     + rmse_loss(jerk4, guiding_factor * jerk4.detach().clone()))
     return velocity_loss, jerk_loss
 
 
