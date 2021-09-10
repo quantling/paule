@@ -74,30 +74,30 @@ def get_vel_acc_jerk(trajectory, *, lag=1):
 def velocity_jerk_loss(pred, *, guiding_factor=0.5):
     """returns (velocity_loss, jerk_loss) tuple"""
     vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
-    vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
-    vel4, acc4, jerk4 = get_vel_acc_jerk(pred, lag=4)
+    #vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
+    #vel4, acc4, jerk4 = get_vel_acc_jerk(pred, lag=4)
 
     # the loss used here
-    loss = l2
-    #loss = rmse_loss
+    #loss = l2
+    loss = rmse_loss
 
     # in the lag calculation higher lags are already normalised to standard
     # units
     if guiding_factor is None:
-        velocity_loss = (loss(vel1, torch.zeros_like(vel1))
-                         + loss(vel2, torch.zeros_like(vel2))
-                         + loss(vel4, torch.zeros_like(vel4)))
-        jerk_loss = (loss(jerk1, torch.zeros_like(jerk1))
-                     + loss(jerk2, torch.zeros_like(jerk2))
-                     + loss(jerk4, torch.zeros_like(jerk4)))
+        velocity_loss = (loss(vel1, torch.zeros_like(vel1)))
+                         #+ loss(vel2, torch.zeros_like(vel2))
+                         #+ loss(vel4, torch.zeros_like(vel4)))
+        jerk_loss = (loss(jerk1, torch.zeros_like(jerk1)))
+                     #+ loss(jerk2, torch.zeros_like(jerk2))
+                     #+ loss(jerk4, torch.zeros_like(jerk4)))
     else:
         assert 0.0 < guiding_factor < 1.0
-        velocity_loss = (loss(vel1, guiding_factor * vel1.detach().clone())
-                         + loss(vel2, guiding_factor * vel2.detach().clone())
-                         + loss(vel4, guiding_factor * vel4.detach().clone()))
-        jerk_loss = (loss(jerk1, guiding_factor * jerk1.detach().clone())
-                     + loss(jerk2, guiding_factor * jerk2.detach().clone())
-                     + loss(jerk4, guiding_factor * jerk4.detach().clone()))
+        velocity_loss = (loss(vel1, guiding_factor * vel1.detach().clone()))
+                         #+ loss(vel2, guiding_factor * vel2.detach().clone())
+                         #+ loss(vel4, guiding_factor * vel4.detach().clone()))
+        jerk_loss = (loss(jerk1, guiding_factor * jerk1.detach().clone()))
+                     #+ loss(jerk2, guiding_factor * jerk2.detach().clone())
+                     #+ loss(jerk4, guiding_factor * jerk4.detach().clone()))
     return velocity_loss, jerk_loss
 
 
