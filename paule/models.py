@@ -162,33 +162,6 @@ class MelChannelConv1D(torch.nn.Module):
 ################################################# Inverse Models  ######################################################
 ########################################################################################################################
 
-class InverseModel_IncpetionResnet(torch.nn.Module):
-    """
-    InverseModel with Inception like modules"
-    """
-    def __init__(self, input_size = 60,
-                 output_size = 30,
-                 hidden_size = 180,
-                 num_lstm_layers = 4,
-                 n_blocks = 10):
-        super().__init__()
-        self.pre_activation_function = torch.nn.Identity()
-        self.double_sequence = double_sequence()
-        self.add_vel_and_acc_info = add_vel_and_acc_info()
-        self.lstm = torch.nn.LSTM(3 * (input_size), hidden_size, num_layers=num_lstm_layers, batch_first=True)
-        self.post_linear = torch.nn.Linear(hidden_size, output_size)
-        self.InceptionBlocks = torch.nn.Sequential(*[TimeConvIncpetionBlock(output_size, self.pre_activation_function) for _ in range(n_blocks)])
-
-
-    def forward(self, x):
-        x = self.add_vel_and_acc_info(x)
-        output = self.lstm(x)
-        output = self.post_linear(output)
-        output = self.double_sequence(output)
-        output = self.InceptionBlocks(output.permute(0,2,1))
-
-        return output.permute(0,2,1)
-
 class InverseModel_MelTimeSmoothResidual(torch.nn.Module):
     """
         InverseModel
@@ -338,10 +311,38 @@ class ForwardModel_MelTimeSmoothResidual(torch.nn.Module):
 
         return output
 
+class ForwardModel(torch.nn.Module):
+    """
+        ForwardModel
+        - Initial Conv1d layers for Convolution over time stacked with residual connections
+        - stacked LSTM-Cells
+        - Post Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
+        - Weighting of lstm output and smoothed output
+    """
+
+    def __init__(self, input_size=30,
+                 output_size=60,
+                 hidden_size=180,
+                 num_lstm_layers=4):
+        super().__init__()
+
+        self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+        self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers=num_lstm_layers, batch_first=True)
+        self.post_linear = torch.nn.Linear(hidden_size, output_size)
+
+    def forward(self, x, *args):
+        output, _ = self.lstm(x)
+        output = self.post_linear(output)
+        output = output.permute(0, 2, 1)
+        output = self.half_sequence(output)
+        output = output.permute(0, 2, 1)
+
+        return output
 
 ########################################################################################################################
 ############################################### Embbedder Models  ######################################################
 ########################################################################################################################
+
 class MelEmbeddingModel_MelSmoothResidualUpsampling(torch.nn.Module):
     """
         EmbedderModel
@@ -476,138 +477,9 @@ class Non_Linear_Model(torch.nn.Module):
         return output
 
 
-class Resnet_Model(torch.nn.Module):
-    def __init__(self,
-                 input_channel=30,
-                 output_channel=60,
-                 hidden_units=180,
-                 hidden_layers=5,
-                 activation_function=torch.nn.LeakyReLU(),
-                 on_full_sequence=False):
-        super().__init__()
-        self.on_full_sequence = on_full_sequence
-        if self.on_full_sequence:
-            self.input_channel = input_channel * 3
-            self.add_vel_and_acc_info = add_vel_and_acc_info
-            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
-        else:
-            self.input_channel = input_channel * 2
-
-        self.output_channel = output_channel
-        self.hidden_units = hidden_units
-        self.activation_function = activation_function
-
-        self.resid_layers = torch.nn.ModuleList(
-            [torch.nn.Linear(self.input_channel, self.hidden_units)])
-        self.resid_layers = self.resid_layers.extend(torch.nn.ModuleList(
-            [torch.nn.Linear(self.hidden_units, self.hidden_units) for _ in range(hidden_layers - 1)]))
-        self.output_layer = torch.nn.Linear(self.hidden_units, self.output_channel)
-
-    def forward(self, x, *args):
-        if self.on_full_sequence:
-            output = self.add_vel_and_acc_info(x)
-        else:
-            output = x.reshape((x.shape[0], -1))
-
-        for i, block in enumerate(self.resid_layers):
-            resid = output
-            output = block(output)
-            output = self.activation_function(output)
-            if i == 0:
-                if self.input_channel == self.hidden_units:
-                    output += resid
-            else:
-                output += resid
-
-        output = self.output_layer(output)
-        if self.on_full_sequence:
-            output = output.permute(0, 2, 1)
-            output = self.half_sequence(output)
-            output = output.permute(0, 2, 1)
-        return output
-
 ########################################################################################################################
 ############################################### Generative Models  #####################################################
 ########################################################################################################################
-
-class LSTM_Critic(torch.nn.Module):
-    def __init__(self, input_size=30,
-                 embed_size=300,
-                 output_size=1,
-                 hidden_size=180,
-                 num_lstm_layers=4,
-                 resiudal_blocks=0,
-                 time_filter_size=5,
-                 post_upsampling_size=1024,
-                 post_activation=torch.nn.LeakyReLU(0.2)):
-        super().__init__()
-        self.ResidualConvBlocks = torch.nn.ModuleList(
-            [TimeConvResBlock(input_size + embed_size, time_filter_size) for _ in range(resiudal_blocks)])
-        self.lstm = torch.nn.LSTM(input_size + embed_size, hidden_size, num_layers=num_lstm_layers, batch_first=True)
-        self.post_linear = torch.nn.Linear(hidden_size, post_upsampling_size)
-        self.upsampling = torch.nn.Linear(post_upsampling_size, output_size)
-        self.post_activation = post_activation
-
-    def forward(self, x, lens, vector, *args):
-        x = torch.cat([x, vector.unsqueeze(1).repeat(1, x.shape[1], 1)], dim=2)
-
-        if len(self.ResidualConvBlocks) > 0:
-            x = x.permute(0, 2, 1)
-            for layer in self.ResidualConvBlocks:
-                x = layer(x)
-            x = x.permute(0, 2, 1)
-
-        output, (h_n, _) = self.lstm(x)
-        output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
-        output = self.post_linear(output)
-        output = self.post_activation(output)
-        output = self.upsampling(output)
-
-        return output
-
-
-class LSTM_Generator(torch.nn.Module):
-    def __init__(self, channel_noise=100,
-                 embed_size=300,
-                 fc_size=1080,
-                 fc_reshaped_size=180,
-                 output_size=30,
-                 hidden_size=180,
-                 num_lstm_layers=4):
-        super().__init__()
-        self.fc_reshaped_size = fc_reshaped_size
-
-        self.activation = torch.nn.LeakyReLU(0.2)
-        self.output_activation = torch.nn.Tanh()
-        self.fully_connected = torch.nn.Linear(channel_noise + embed_size, fc_size)
-        self.lstm_layers = torch.nn.ModuleList(
-            [torch.nn.LSTM(fc_reshaped_size, hidden_size, num_layers=1, batch_first=True)])
-        self.lstm_layers = self.lstm_layers.extend(torch.nn.ModuleList(
-            [torch.nn.LSTM(hidden_size, hidden_size, num_layers=1, batch_first=True) for _ in
-             range(num_lstm_layers - 1)]))
-        self.post_linear = torch.nn.Linear(hidden_size, output_size)
-
-    def forward(self, x, length, vector, *args):
-        x = torch.cat([x, vector.unsqueeze(1)], dim=2)
-        output = self.fully_connected(x)
-        output = output.view((len(x), int(output.shape[-1] / self.fc_reshaped_size),
-                              self.fc_reshaped_size))  # batch, channels, seq length
-
-        for i, lstm_layer in enumerate(self.lstm_layers):
-            output = output.permute(0, 2, 1)
-            size_ = int(length / (len(self.lstm_layers) - i))
-            resizing = torch.nn.Upsample(size=(size_), mode='linear', align_corners=False)
-            output = resizing(output)
-            output = output.permute(0, 2, 1)
-            resid = output
-            output, _ = lstm_layer(output)
-            output += resid
-
-        output = self.post_linear(output)
-        output = self.output_activation(output)
-
-        return output
-
 
 class Critic(torch.nn.Module):
     def __init__(self, input_size=30,
