@@ -138,7 +138,7 @@ class Paule():
     """
 
     def __init__(self, *, pred_model=None, inv_model=None, embedder=None,
-                 cp_gen_model=None, mel_gen_model=None, device=torch.device('cpu')):
+                 cp_gen_model=None, mel_gen_model=None,continue_data=None ,device=torch.device('cpu')):
 
         # load the pred_model, inv_model and embedder here
         # for cpu
@@ -201,7 +201,8 @@ class Paule():
         # created from geco_embedding_preprocessed_balanced_vectors_checked_extrem_long_removed_valid_matched_prot4
         # self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
 
-        self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
+        #self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
+        self.continue_data = continue_data
 
         self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = rmse_loss
@@ -417,7 +418,9 @@ class Paule():
                         jerk_loss_steps.append(float(jerk_loss.item()))
 
                         if log_semantics:
-                            pred_semvec_loss_steps.append(float(rmse_loss(pred_semvec, target_semvec).item()))
+                            semvec_loss = float(rmse_loss(pred_semvec, target_semvec).item())
+                            pred_semvec_loss_steps.append(semvec_loss)
+                            
 
                     if verbose:
                         print("Iteration %d" % ii)
@@ -425,6 +428,8 @@ class Paule():
                         print("Mel Loss: ", float(mel_loss.item()))
                         print("Vel Loss: ", float(vel_loss.item()))
                         print("Jerk Loss: ", float(jerk_loss.item()))
+                        if log_semantics:
+                            print("Semvec Loss: ", float(semvec_loss))
 
 
                 elif objective == 'acoustic_semvec':
@@ -448,16 +453,19 @@ class Paule():
 
                 elif objective == 'semvec':
                     discrepancy, vel_loss, jerk_loss, semvec_loss = criterion(pred_semvec, target_semvec, xx_new)
-
+                    mel_loss = rmse_loss(pred_mel, target_mel)
+                    
                     if (ii + 1) % log_ii == 0 or ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
                         jerk_loss_steps.append(float(jerk_loss.item()))
                         pred_semvec_loss_steps.append(float(semvec_loss.item()))
+                        planned_mel_loss_steps.append(float(mel_loss.item()))
 
                     if verbose:
                         print("Iteration %d" % ii)
                         print("Planned Loss: ", float(discrepancy.item()))
+                        print("Mel Loss: ", float(mel_loss.item()))
                         print("Vel Loss: ", float(vel_loss.item()))
                         print("Jerk Loss: ", float(jerk_loss.item()))
                         print("Semvec Loss: ", float(semvec_loss.item()))
@@ -685,7 +693,7 @@ class Paule():
 
         return planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss, self.pred_model, self.pred_optimizer
 
-        # 0. planned_cp
+    # 0. planned_cp
     # 1. inv_cp
     # 2. target_sig
     # 3. target_mel
