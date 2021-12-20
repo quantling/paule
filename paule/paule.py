@@ -45,10 +45,10 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-import utils
-from utils import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss, mel_to_sig
-from model_zoo import *
-from training import pad_batch_online
+import util
+from util import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss, mel_to_sig
+from models import *
+from util import pad_batch_online
 from matplotlib import cm
 
 DIR = os.getcwd()
