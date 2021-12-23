@@ -350,6 +350,37 @@ class RMSELoss(torch.nn.Module):
         return loss
 
 
+def add_and_pad(xx, max_len, with_onset_dim=False):
+    """
+    Pad a sequence with last value to maximal length
+
+    Parameters
+    ==========
+    xx : 2D np.array
+        seuence to be padded (seq_length, feeatures)
+    max_len : int
+        maximal length to be padded to
+    with_onset_dim : bool
+        add one features with 1 for the first time step and rest 0 to indicate
+        sound onset
+
+    Returns
+    =======
+    pad_seq : torch.Tensor
+        2D padded sequence
+
+    """
+    seq_length = xx.shape[0]
+    if with_onset_dim:
+        onset = np.zeros((seq_length, 1))
+        onset[0, 0] = 1
+        xx = np.concatenate((xx, onset), axis=1)  # shape len X (features +1)
+    padding_size = max_len - seq_length
+    padding_size = tuple([padding_size] + [1 for i in range(len(xx.shape) - 1)])
+    xx = np.concatenate((xx, np.tile(xx[-1:], padding_size)), axis=0)
+    return torch.from_numpy(xx)
+
+
 def pad_batch_online(lens, data_to_pad, device="cpu", with_onset_dim=False):
     """
     pads and batches data into one single padded batch.
@@ -369,7 +400,7 @@ def pad_batch_online(lens, data_to_pad, device="cpu", with_onset_dim=False):
     """
     max_len = int(max(lens))
     padded_data = torch.stack(list(data_to_pad.apply(
-        lambda x: add_and_pad(x, max_len,with_onset_dim=with_onset_dim)))).to(device)
+        lambda x: add_and_pad(x, max_len, with_onset_dim=with_onset_dim)))).to(device)
 
     return padded_data
 

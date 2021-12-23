@@ -35,7 +35,6 @@ from torch.utils import data
 from torch.nn import L1Loss, MSELoss
 from matplotlib import pyplot as plt
 import soundfile as sf
-import librosa
 import librosa.display
 from matplotlib import cm
 
@@ -48,7 +47,8 @@ tqdm.pandas()
 from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, mel_to_sig,
         pad_batch_online)
-from .models import *
+from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
+        MelEmbeddingModel_MelSmoothResidualUpsampling, Generator)
 
 DIR = os.path.dirname(__file__)
 
@@ -206,6 +206,7 @@ class Paule():
         self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = rmse_loss
 
+
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=None,
                      target_acoustic=None,
                      target_semvec=None,
@@ -224,11 +225,15 @@ class Paule():
                      verbose=False):
         """
         plans resynthesis cp trajectories.
+
         Parameters
-        ----------
-        learning_rate_planning: float; learning rate for updating cps
-        learning_rate_learning: float; learning rate for updating predictive model
-        target_acoustic : str; (target_sig, target_sr)
+        ==========
+        learning_rate_planning : float
+            learning rate for updating cps
+        learning_rate_learning : float
+            learning rate for updating predictive model
+        target_acoustic : str
+            (target_sig, target_sr)
         target_semvec : torch.tensor
         target_seq_length : int (None)
         inv_cp : torch.tensor
@@ -237,13 +242,18 @@ class Paule():
         objective : {'acoustic_semvec', 'acoustic', 'semvec'}
         n_outer : int (40)
         n_inner : int (100)
-        continue_learning: bool (True) update predictive model with synthesized acoustics
-        add_training_data: bool (False) update solely on produced acoustics during training or add training data
-        log_ii: int log results and synthesize audio after ii number of inner iterations
+        continue_learning : bool (True)
+            update predictive model with synthesized acoustics
+        add_training_data : bool (False)
+            update solely on produced acoustics during training or add training data
+        log_ii : int
+            log results and synthesize audio after ii number of inner iterations
         plot : bool (False)
-        plot_save_file: file_name to store plots
-        seed: int random seed
+        plot_save_file : str
+            file_name to store plots
+        seed : int random seed
         verbose : bool (False)
+
         """
 
         if seed:
@@ -690,29 +700,35 @@ class Paule():
 
         print("--- %.2f min ---" % ((time.time() - start_time) / 60))
 
-        return planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss, self.pred_model, self.pred_optimizer
+        # 0. planned_cp
+        # 1. inv_cp
+        # 2. target_sig
+        # 3. target_mel
+        # 4. prod_sig
+        # 5. prod_mel
+        # 6. pred_mel
+        # 7. prod_loss_steps
+        # 8. planned_loss_steps
+        # 9. planned_mel_loss_steps
+        # 10. vel_loss_steps
+        # 11. jerk_loss_steps
+        # 12. pred_semvec_loss_steps
+        # 13. prod_semvec_loss_steps
+        # 14. cp_steps
+        # 15. pred_semvec_steps
+        # 16. prod_semvec_steps
+        # 17. grad_steps
+        # 18. sig_steps
+        # 19. prod_mel_steps
+        # 20. pred_mel_steps
+        # 21. model_loss
+        # 22. pred_model
+        # 23. optimizer
+        return (planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel,
+                pred_mel, prod_loss_steps, planned_loss_steps,
+                planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
+                pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
+                pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
+                prod_mel_steps, pred_mel_steps, model_loss, self.pred_model,
+                self.pred_optimizer)
 
-    # 0. planned_cp
-    # 1. inv_cp
-    # 2. target_sig
-    # 3. target_mel
-    # 4. prod_sig
-    # 5. prod_mel
-    # 6. pred_mel
-    # 7. prod_loss_steps
-    # 8. planned_loss_steps
-    # 9. planned_mel_loss_steps
-    # 10. vel_loss_steps
-    # 11. jerk_loss_steps
-    # 12. pred_semvec_loss_steps
-    # 13. prod_semvec_loss_steps
-    # 14. cp_steps
-    # 15. pred_semvec_steps
-    # 16. prod_semvec_steps
-    # 17. grad_steps
-    # 18. sig_steps
-    # 19. prod_mel_steps
-    # 20. pred_mel_steps
-    # 21. model_loss
-    # 22. pred_model
-    # 23. optimizer
