@@ -35,9 +35,9 @@ from torch.utils import data
 from torch.nn import L1Loss, MSELoss
 from matplotlib import pyplot as plt
 import soundfile as sf
-#import noisereduce
 import librosa
 import librosa.display
+from matplotlib import cm
 
 # Set seed
 torch.manual_seed(20200905)
@@ -45,13 +45,12 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-import utils
-from utils import speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa, inv_normalize_mel_librosa, stereo_to_mono, librosa_melspec, pad_same_to_even_seq_length, RMSELoss, mel_to_sig
-from model_zoo import *
-from training import pad_batch_online
-from matplotlib import cm
+from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
+        stereo_to_mono, librosa_melspec, RMSELoss, mel_to_sig,
+        pad_batch_online)
+from .models import *
 
-DIR = os.getcwd()
+DIR = os.path.dirname(__file__)
 
 
 rmse_loss = RMSELoss(eps=0)
