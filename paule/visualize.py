@@ -17,7 +17,6 @@ def vis_result(result, condition='prefix', folder='data'):
     Stores all results in data/ folder.
 
     """
-    CONDITION = condition
     (planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, loss_steps,
      loss_mel_steps, loss_semvec_steps, loss_jerk_steps, loss_velocity_steps, loss_prod_steps) = result
 
@@ -27,9 +26,9 @@ def vis_result(result, condition='prefix', folder='data'):
     inv_mel = util.normalize_mel_librosa(inv_mel)
 
     target_sr = prod_sr = 44100
-    sf.write(f'{folder}/{CONDITION}_planned.flac', 4 * prod_sig, prod_sr)
-    sf.write(f'{folder}/{CONDITION}_inv.flac', 4 * inv_sig, inv_sr)
-    sf.write(f'{folder}/{CONDITION}_target.flac', 4 * target_sig, target_sr)
+    sf.write(f'{folder}/{condition}_planned.flac', 4 * prod_sig, prod_sr)
+    sf.write(f'{folder}/{condition}_inv.flac', 4 * inv_sig, inv_sr)
+    sf.write(f'{folder}/{condition}_target.flac', 4 * target_sig, target_sr)
 
     fig = plt.figure()
     plt.plot(loss_steps, c='blue', label='loss', lw=3)
@@ -43,7 +42,7 @@ def vis_result(result, condition='prefix', folder='data'):
     #plt.hlines(5e-4, 0, len(loss_steps), ls=':', color='orange', label='asympt. test loss')
     plt.yscale('log')
     plt.legend()
-    fig.savefig(f'{folder}/{CONDITION}_loss.png')
+    fig.savefig(f'{folder}/{condition}_loss.png')
 
 
     fig = plt.figure()
@@ -51,7 +50,7 @@ def vis_result(result, condition='prefix', folder='data'):
     plt.plot(range(step_size - 1, (len(loss_prod_steps)) * step_size, step_size), loss_prod_steps, c='green', label='prod loss', lw=3)
     plt.yscale('log')
     plt.legend()
-    fig.savefig(f'{folder}/{CONDITION}_prod-loss.png')
+    fig.savefig(f'{folder}/{condition}_prod-loss.png')
 
 
     fig = plt.figure()
@@ -71,17 +70,17 @@ def vis_result(result, condition='prefix', folder='data'):
     ax3.plot(img3[:, 19:20], label='f0')
     ax3.set_ylabel("difference")
     ax1.legend()
-    fig.savefig(f'{folder}/{CONDITION}_cps.png')
+    fig.savefig(f'{folder}/{condition}_cps.png')
 
 
-    os.makedirs(f'{folder}/{CONDITION}_inv_svgs/')
-    util.export_svgs(util.inv_normalize_cp(inv_cp), path=f'{folder}/{CONDITION}_inv_svgs/')
-    system_call = f'cd {folder}/{CONDITION}_inv_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_inv.flac ../{CONDITION}_inv.mp4'
+    os.makedirs(f'{folder}/{condition}_inv_svgs/')
+    util.export_svgs(util.inv_normalize_cp(inv_cp), path=f'{folder}/{condition}_inv_svgs/')
+    system_call = f'cd {folder}/{condition}_inv_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_inv.flac ../{condition}_inv.mp4'
     os.system(system_call)
 
-    os.makedirs(f'{folder}/{CONDITION}_planned_svgs/')
-    util.export_svgs(util.inv_normalize_cp(planned_cp), path=f'{folder}/{CONDITION}_planned_svgs/')
-    system_call = f'cd {folder}/{CONDITION}_planned_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{CONDITION}_planned.flac ../{CONDITION}_planned.mp4'
+    os.makedirs(f'{folder}/{condition}_planned_svgs/')
+    util.export_svgs(util.inv_normalize_cp(planned_cp), path=f'{folder}/{condition}_planned_svgs/')
+    system_call = f'cd {folder}/{condition}_planned_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_planned.flac ../{condition}_planned.mp4'
     os.system(system_call)
 
 
@@ -95,7 +94,7 @@ def vis_result(result, condition='prefix', folder='data'):
     ax2.set_ylabel('predicted')
     librosa.display.specshow(prod_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax3, vmin=0, vmax=1)
     ax3.set_ylabel('produced')
-    fig.savefig(f'{folder}/{CONDITION}_target_predicted_produced.png')
+    fig.savefig(f'{folder}/{condition}_target_predicted_produced.png')
 
 
     fig = plt.figure()
@@ -108,6 +107,6 @@ def vis_result(result, condition='prefix', folder='data'):
     ax2.set_ylabel('produced')
     librosa.display.specshow(inv_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax3, vmin=0, vmax=1)
     ax3.set_ylabel('initial')
-    fig.savefig(f'{folder}/{CONDITION}_target_produced_initial.png')
+    fig.savefig(f'{folder}/{condition}_target_produced_initial.png')
     plt.show()  # this shows all saved figures
 

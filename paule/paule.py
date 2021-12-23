@@ -24,6 +24,7 @@ import pickle
 import random
 import time
 import os
+from collections import namedtuple
 
 import pandas as pd
 import numpy as np
@@ -57,6 +58,8 @@ rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
 l1 = L1Loss()
 
+PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss, pred_model, pred_optimizer")
+
 
 def get_vel_acc_jerk(trajectory, *, lag=1):
     """returns (velocity, acceleration, jerk) tuple"""
@@ -67,7 +70,7 @@ def get_vel_acc_jerk(trajectory, *, lag=1):
 
 
 
-def velocity_jerk_loss(pred,loss):
+def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
     """returns (velocity_loss, jerk_loss) tuple"""
     vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
     vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
@@ -77,12 +80,22 @@ def velocity_jerk_loss(pred,loss):
 
     # in the lag calculation higher lags are already normalised to standard
     # units
-    velocity_loss = (loss(vel1, torch.zeros_like(vel1))
-                     + loss(vel2, torch.zeros_like(vel2))
-                     + loss(vel4, torch.zeros_like(vel4)))
-    jerk_loss = (loss(jerk1, torch.zeros_like(jerk1))
-                 + loss(jerk2, torch.zeros_like(jerk2))
-                 + loss(jerk4, torch.zeros_like(jerk4)))
+    if guiding_factor is None:
+        velocity_loss = (loss(vel1, torch.zeros_like(vel1))
+                         + loss(vel2, torch.zeros_like(vel2))
+                         + loss(vel4, torch.zeros_like(vel4)))
+        jerk_loss = (loss(jerk1, torch.zeros_like(jerk1))
+                     + loss(jerk2, torch.zeros_like(jerk2))
+                     + loss(jerk4, torch.zeros_like(jerk4)))
+    else:
+        assert 0.0 < guiding_factor < 1.0
+        velocity_loss = (loss(vel1, guiding_factor * vel1.detach().clone())
+                         + loss(vel2, guiding_factor * vel2.detach().clone())
+                         + loss(vel4, guiding_factor * vel4.detach().clone()))
+        jerk_loss = (loss(jerk1, guiding_factor * jerk1.detach().clone())
+                     + loss(jerk2, guiding_factor * jerk2.detach().clone())
+                     + loss(jerk4, guiding_factor * jerk4.detach().clone()))
+
     return velocity_loss, jerk_loss
 
 
@@ -136,8 +149,9 @@ class Paule():
     embedder model as well as data used for continue learning.
     """
 
-    def __init__(self, *, pred_model=None, inv_model=None, embedder=None,
-                 cp_gen_model=None, mel_gen_model=None,continue_data=None ,device=torch.device('cpu')):
+    def __init__(self, *, pred_model=None, pred_optimizer=None, inv_model=None,
+                 embedder=None, cp_gen_model=None, mel_gen_model=None,
+                 continue_data=None, device=torch.device('cpu')):
 
         # load the pred_model, inv_model and embedder here
         # for cpu
@@ -203,7 +217,10 @@ class Paule():
         #self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
         self.continue_data = continue_data
 
-        self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
+        if pred_optimizer:
+            self.pred_optimizer = pred_optimizer
+        else:
+            self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = rmse_loss
 
 
@@ -211,7 +228,7 @@ class Paule():
                      target_acoustic=None,
                      target_semvec=None,
                      target_seq_length=None,
-                     inv_cp=None,
+                     initial_cp=None,
                      initialize_from="acoustic",
                      objective="acoustic",
                      n_outer=10, n_inner=50,
@@ -236,9 +253,9 @@ class Paule():
             (target_sig, target_sr)
         target_semvec : torch.tensor
         target_seq_length : int (None)
-        inv_cp : torch.tensor
+        initial_cp : torch.tensor
         initialize_from : {'semvec', 'acoustic', None}
-            can be None, if inv_cp are given
+            can be None, if initial_cp are given
         objective : {'acoustic_semvec', 'acoustic', 'semvec'}
         n_outer : int (40)
         n_inner : int (100)
@@ -318,33 +335,33 @@ class Paule():
         #    loss = mel_loss + velocity_loss + jerk_loss
         #    return loss, mel_loss, velocity_loss, jerk_loss, pred_mel
 
-        # 1.1 predict inv_cp
-        if inv_cp is None:
+        # 1.1 predict initial_cp
+        if initial_cp is None:
             if initialize_from == "acoustic":
                 xx = target_mel.detach().clone().to(self.device)
                 with torch.no_grad():
-                    inv_cp = self.inv_model(xx)
-                inv_cp = inv_cp.detach().cpu().numpy().clip(min=-1, max=1)
-                inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
+                    initial_cp = self.inv_model(xx)
+                initial_cp = initial_cp.detach().cpu().numpy().clip(min=-1, max=1)
+                initial_cp.shape = (initial_cp.shape[1], initial_cp.shape[2])
                 del xx
             elif initialize_from == "semvec":
                 cp_gen_noise = torch.randn(1, 1, 100).to(self.device)
                 if not isinstance(target_semvec, torch.Tensor):
                     target_semvec = torch.tensor(target_semvec)
                 cp_gen_semvec = target_semvec.view(1, 300).detach().clone()
-                inv_cp = self.cp_gen_model(cp_gen_noise, 2 * target_seq_length, cp_gen_semvec)
-                inv_cp = inv_cp.detach().cpu().numpy()
-                inv_cp.shape = (inv_cp.shape[1], inv_cp.shape[2])
+                initial_cp = self.cp_gen_model(cp_gen_noise, 2 * target_seq_length, cp_gen_semvec)
+                initial_cp = initial_cp.detach().cpu().numpy()
+                initial_cp.shape = (initial_cp.shape[1], initial_cp.shape[2])
             else:
                 raise ValueError("initialize_from has to be either 'acoustic' or 'semvec'")
 
         else:
-            assert inv_cp.shape[0] == target_mel.shape[
-                1] * 2, f"inv_cp {inv_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}"
+            assert initial_cp.shape[0] == target_mel.shape[
+                1] * 2, f"initial_cp {initial_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}"
 
         # 1.3 create initial xx
-        # inv_cp = np.zeros_like(inv_cp)
-        xx_new = inv_cp.copy()
+        # initial_cp = np.zeros_like(initial_cp)
+        xx_new = initial_cp.copy()
         xx_new.shape = (1, xx_new.shape[0], xx_new.shape[1])
         xx_new = torch.from_numpy(xx_new)
         xx_new = xx_new.to(self.device)
@@ -692,6 +709,7 @@ class Paule():
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
+        prod_sr = sr
         target_mel = target_mel[-1, :, :].detach().cpu().numpy()
         prod_mel = prod_mel[-1, :, :].detach().cpu().numpy()
         with torch.no_grad():
@@ -700,31 +718,37 @@ class Paule():
 
         print("--- %.2f min ---" % ((time.time() - start_time) / 60))
 
-        # 0. planned_cp
-        # 1. inv_cp
-        # 2. target_sig
-        # 3. target_mel
-        # 4. prod_sig
-        # 5. prod_mel
-        # 6. pred_mel
-        # 7. prod_loss_steps
-        # 8. planned_loss_steps
-        # 9. planned_mel_loss_steps
-        # 10. vel_loss_steps
-        # 11. jerk_loss_steps
-        # 12. pred_semvec_loss_steps
-        # 13. prod_semvec_loss_steps
-        # 14. cp_steps
-        # 15. pred_semvec_steps
-        # 16. prod_semvec_steps
-        # 17. grad_steps
-        # 18. sig_steps
-        # 19. prod_mel_steps
-        # 20. pred_mel_steps
-        # 21. model_loss
-        # 22. pred_model
-        # 23. optimizer
-        return (planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel,
+
+        #  0. planned_cp
+        #  1. initial_cp
+        #  2. target_sig
+        #  3. target_sr
+        #  4. target_mel
+        #  5. prod_sig
+        #  6. prod_sr
+        #  7. prod_mel
+        #  8. pred_mel
+        #  9. prod_loss_steps
+        # 10. planned_loss_steps
+        # 11. planned_mel_loss_steps
+        # 12. vel_loss_steps
+        # 13. jerk_loss_steps
+        # 14. pred_semvec_loss_steps
+        # 15. prod_semvec_loss_steps
+        # 16. cp_steps
+        # 17. pred_semvec_steps
+        # 18. prod_semvec_steps
+        # 19. grad_steps
+        # 20. sig_steps
+        # 21. prod_mel_steps
+        # 22. pred_mel_steps
+        # 23. model_loss
+        # 24. pred_model
+        # 25. pred_optimizer
+
+
+        return PlanningResults(planned_cp, initial_cp, target_sig, target_sr,
+                target_mel, prod_sig, prod_sr, prod_mel,
                 pred_mel, prod_loss_steps, planned_loss_steps,
                 planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
                 pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
