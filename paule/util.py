@@ -14,7 +14,7 @@ if sys.platform.startswith('linux'):
 elif sys.platform.startswith('win32'):
     _FILE_ENDING = '.dll'
 elif sys.platform.startswith('darwin'):
-    _FILE_ENDING = '.dynlib'
+    _FILE_ENDING = '.dylib'
 
 VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/VocalTractLabApi' + _FILE_ENDING))
 del _FILE_ENDING
@@ -352,16 +352,24 @@ class RMSELoss(torch.nn.Module):
 
 def pad_batch_online(lens, data_to_pad, device="cpu", with_onset_dim=False):
     """
-    :param lens: 1D torch.Tensor
+    pads and batches data into one single padded batch.
+
+    Parameters
+    ==========
+    lens : 1D torch.Tensor
         Tensor containing the length of each sample in data_to_pad of one batch
-    :param data_to_pad: series
+    data_to_pad : series
         series containing the data to pad
-    :return padded_data: torch.Tensors
+
+    Returns
+    =======
+    padded_data : torch.Tensors
         Tensors containing the padded and stacked to one batch
+
     """
     max_len = int(max(lens))
-    padded_data = torch.stack(list(data_to_pad.apply(lambda x: add_and_pad(x, max_len,with_onset_dim=with_onset_dim)))).to(device)
+    padded_data = torch.stack(list(data_to_pad.apply(
+        lambda x: add_and_pad(x, max_len,with_onset_dim=with_onset_dim)))).to(device)
 
     return padded_data
-
 
