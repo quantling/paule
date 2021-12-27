@@ -58,7 +58,7 @@ rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
 l1 = L1Loss()
 
-PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss, pred_model, pred_optimizer")
+PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss")
 
 
 def get_vel_acc_jerk(trajectory, *, lag=1):
@@ -236,7 +236,7 @@ class Paule():
                      add_training_data=False,
                      log_ii=None,
                      log_semantics=False,
-                     n_batches=1, batch_size=8, n_epochs=1,
+                     n_batches=6, batch_size=8, n_epochs=5,
                      log_gradients=False,
                      plot=False, plot_save_file="test", seed=None,
                      verbose=False):
@@ -718,7 +718,6 @@ class Paule():
 
         print("--- %.2f min ---" % ((time.time() - start_time) / 60))
 
-
         #  0. planned_cp
         #  1. initial_cp
         #  2. target_sig
@@ -746,13 +745,11 @@ class Paule():
         # 24. pred_model
         # 25. pred_optimizer
 
-
         return PlanningResults(planned_cp, initial_cp, target_sig, target_sr,
                 target_mel, prod_sig, prod_sr, prod_mel,
                 pred_mel, prod_loss_steps, planned_loss_steps,
                 planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
                 pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
                 pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
-                prod_mel_steps, pred_mel_steps, model_loss, self.pred_model,
-                self.pred_optimizer)
+                prod_mel_steps, pred_mel_steps, model_loss)
 
