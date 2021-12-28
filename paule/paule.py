@@ -45,10 +45,10 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
+from util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, mel_to_sig,
         pad_batch_online)
-from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
+from models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
         MelEmbeddingModel_MelSmoothResidualUpsampling, Generator)
 
 DIR = os.path.dirname(__file__)
@@ -239,7 +239,6 @@ class Paule():
                      n_batches=6, batch_size=8, n_epochs=5,
                      log_gradients=False,
                      plot=False, plot_save_file="test", 
-                     save_pred_model=True, model_save_fil="test", 
                      seed=None,
                      verbose=False):
         """
@@ -270,9 +269,6 @@ class Paule():
         plot : bool (False)
         plot_save_file : str
             file_name to store plots
-        save_pred_model: bool (True)
-        model_save_file: str
-            file_name to store model + optimizer
         seed : int random seed
         verbose : bool (False)
 
@@ -712,9 +708,6 @@ class Paule():
                         avg_loss.append(float(pred_loss.item()))
                     model_loss.append(np.mean(avg_loss))
 
-                if save_pred_model:
-                    torch.save(self.pred_model, f"{model_save_file}_pred_model.pt")
-                    torch.save(self.pred_optimizer, f"{model_save_file}_pred_optimizer.pt")
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
