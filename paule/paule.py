@@ -238,7 +238,9 @@ class Paule():
                      log_semantics=False,
                      n_batches=6, batch_size=8, n_epochs=5,
                      log_gradients=False,
-                     plot=False, plot_save_file="test", seed=None,
+                     plot=False, plot_save_file="test", 
+                     save_pred_model=True, model_save_fil="test", 
+                     seed=None,
                      verbose=False):
         """
         plans resynthesis cp trajectories.
@@ -268,6 +270,9 @@ class Paule():
         plot : bool (False)
         plot_save_file : str
             file_name to store plots
+        save_pred_model: bool (True)
+        model_save_file: str
+            file_name to store model + optimizer
         seed : int random seed
         verbose : bool (False)
 
@@ -707,6 +712,10 @@ class Paule():
                         avg_loss.append(float(pred_loss.item()))
                     model_loss.append(np.mean(avg_loss))
 
+                if save_pred_model:
+                    torch.save(self.pred_model, f"{model_save_file}_pred_model.pt")
+                    torch.save(self.pred_optimizer, f"{model_save_file}_pred_optimizer.pt")
+
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
         prod_sr = sr
@@ -742,8 +751,6 @@ class Paule():
         # 21. prod_mel_steps
         # 22. pred_mel_steps
         # 23. model_loss
-        # 24. pred_model
-        # 25. pred_optimizer
 
         return PlanningResults(planned_cp, initial_cp, target_sig, target_sr,
                 target_mel, prod_sig, prod_sr, prod_mel,
