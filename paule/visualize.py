@@ -8,57 +8,73 @@ import os
 import soundfile as sf
 from matplotlib import pyplot as plt
 import librosa.display
+from matplotlib import cm
 
 from . import util
 
 
-def vis_result(result, condition='prefix', folder='data'):
+def visualize_result(results, condition='prefix', folder='data'):
     """
     Stores all results in data/ folder.
 
     """
-    (planned_cp, inv_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, loss_steps,
-     loss_mel_steps, loss_semvec_steps, loss_jerk_steps, loss_velocity_steps, loss_prod_steps) = result
+    #(planned_cp, initial_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, loss_steps,
+    #loss_mel_steps, loss_semvec_steps, loss_jerk_steps, loss_velocity_steps, loss_prod_steps) = results
 
-    # produce from inv_cp
-    inv_sig, inv_sr = util.speak(util.inv_normalize_cp(inv_cp))
-    inv_mel = util.librosa_melspec(inv_sig, inv_sr)
-    inv_mel = util.normalize_mel_librosa(inv_mel)
+    base_name = os.path.join(folder, f'{condition}')
 
+    initial_pred_mel = results.pred_mel_steps[0][0]
+    initial_prod_mel = results.prod_mel_steps[0][0]
+    initial_sig = results.sig_steps[0]
+    initial_sr = results.prod_sr
+
+    # save mel plot
+    plot_mels(f"{base_name}_mel.png", results.target_mel, initial_pred_mel,
+            initial_prod_mel, results.pred_mel, results.prod_mel)
+
+    # save audio
     target_sr = prod_sr = 44100
-    sf.write(f'{folder}/{condition}_planned.flac', 4 * prod_sig, prod_sr)
-    sf.write(f'{folder}/{condition}_inv.flac', 4 * inv_sig, inv_sr)
-    sf.write(f'{folder}/{condition}_target.flac', 4 * target_sig, target_sr)
+    sf.write(f'{base_name}_planned.flac', results.prod_sig, results.prod_sr)
+    sf.write(f'{base_name}_initial.flac', initial_sig, initial_sr)
+    sf.write(f'{base_name}_target.flac', results.target_sig, results.target_sr)
 
-    fig = plt.figure()
-    plt.plot(loss_steps, c='blue', label='loss', lw=3)
-    step_size = int(len(loss_jerk_steps)/len(loss_prod_steps))
-    plt.plot(range(step_size - 1, (len(loss_prod_steps)) * step_size, step_size), loss_prod_steps, c='green', label='prod loss', lw=3)
-    plt.plot(loss_jerk_steps, ls=':', c='blue', label='jerk loss')
-    plt.plot(loss_velocity_steps, ls='--', c='blue', label='velocity loss')
-    plt.plot(loss_mel_steps, ls='-', c='blue', label='mel loss')
-    plt.plot(loss_semvec_steps, ls='-', c='yellow', label='semvec loss')
-    #plt.hlines(1.5e-4, 0, len(loss_steps), ls='-', color='orange', label='asympt. train loss')
-    #plt.hlines(5e-4, 0, len(loss_steps), ls=':', color='orange', label='asympt. test loss')
-    plt.yscale('log')
-    plt.legend()
-    fig.savefig(f'{folder}/{condition}_loss.png')
+    # save loss plot
+    fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")
+    ax.plot(results.planned_loss_steps, label="planned loss", c="C0")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(f"{base_name}_loss.png")
 
+    fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")
+    ax.plot(results.prod_loss_steps, label="produced mel loss", c="C1")
+    ax.plot(results.planned_mel_loss_steps, label="planned mel loss", c="C0")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(f"{base_name}_loss_mel.png")
 
-    fig = plt.figure()
-    step_size = int(len(loss_jerk_steps)/len(loss_prod_steps))
-    plt.plot(range(step_size - 1, (len(loss_prod_steps)) * step_size, step_size), loss_prod_steps, c='green', label='prod loss', lw=3)
-    plt.yscale('log')
-    plt.legend()
-    fig.savefig(f'{folder}/{condition}_prod-loss.png')
+    # save subloss plot
+    fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")
+    ax.plot(results.vel_loss_steps, label="vel loss", c="C2")
+    ax.plot(results.jerk_loss_steps, label="jerk loss", c="C3")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(f"{base_name}_loss_subloss.png")
 
+    # save semvec loss plot
+    fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")
+    ax.plot(results.pred_semvec_loss_steps, label="planned semvec loss", c="C0")
+    ax.plot(results.prod_semvec_loss_steps, label="produced semvec loss", c="C1")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(f"{base_name}_loss_semvec.png")
 
-    fig = plt.figure()
+    # save cp change plot
+    fig = plt.figure(figsize=(15, 12))
     ax1 = fig.add_axes([0.1, 0.68, 0.88, 0.30], xticklabels=[])
     ax2 = fig.add_axes([0.1, 0.36, 0.88, 0.30], xticklabels=[], sharex=ax1)
     ax3 = fig.add_axes([0.1, 0.04, 0.88, 0.30], xticklabels=[], sharex=ax1)
-    img1 = inv_cp  #target['cp'].iloc[0]
-    img2 = planned_cp
+    img1 = results.initial_cp  #target['cp'].iloc[0]
+    img2 = results.planned_cp
     img3 = img2 - img1
     ax1.plot(img1[:, 8:16])  # , label='tongue'
     ax1.plot(img1[:, 19:20], label='f0')
@@ -70,43 +86,96 @@ def vis_result(result, condition='prefix', folder='data'):
     ax3.plot(img3[:, 19:20], label='f0')
     ax3.set_ylabel("difference")
     ax1.legend()
-    fig.savefig(f'{folder}/{condition}_cps.png')
+    fig.tight_layout()
+    fig.savefig(f'{base_name}_cps.png')
 
+    # save svgs and create mp4s
+    path = f"{base_name}_initial_svgs/"
+    if not os.path.exists(path):
+        os.mkdir(path)
+    util.export_svgs(util.inv_normalize_cp(results.initial_cp), path=path)
+    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_initial.flac ../{condition}_initial.mp4'
+    return_value = os.system(system_call)
+    if return_value != 0:
+        print("WARNING: creating the initial animation went wrong")
 
-    os.makedirs(f'{folder}/{condition}_inv_svgs/')
-    util.export_svgs(util.inv_normalize_cp(inv_cp), path=f'{folder}/{condition}_inv_svgs/')
-    system_call = f'cd {folder}/{condition}_inv_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_inv.flac ../{condition}_inv.mp4'
-    os.system(system_call)
+    path = f"{base_name}_planned_svgs/"
+    if not os.path.exists(path):
+        os.mkdir(path)
+    util.export_svgs(util.inv_normalize_cp(results.planned_cp), path=path)
+    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_planned.flac ../{condition}_planned.mp4'
+    return_value = os.system(system_call)
+    if return_value != 0:
+        print("WARNING: creating the planning animation went wrong")
 
-    os.makedirs(f'{folder}/{condition}_planned_svgs/')
-    util.export_svgs(util.inv_normalize_cp(planned_cp), path=f'{folder}/{condition}_planned_svgs/')
-    system_call = f'cd {folder}/{condition}_planned_svgs/; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_planned.flac ../{condition}_planned.mp4'
-    os.system(system_call)
-
-
-    fig = plt.figure()
-    ax1 = fig.add_axes([0.1, 0.68, 0.88, 0.30], xticklabels=[])
-    ax2 = fig.add_axes([0.1, 0.36, 0.88, 0.30], xticklabels=[], sharex=ax1)
-    ax3 = fig.add_axes([0.1, 0.04, 0.88, 0.30], xticklabels=[], sharex=ax1)
-    librosa.display.specshow(target_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax1, vmin=0, vmax=1)
-    ax1.set_ylabel('target')
-    librosa.display.specshow(pred_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax2, vmin=0, vmax=1)
-    ax2.set_ylabel('predicted')
-    librosa.display.specshow(prod_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax3, vmin=0, vmax=1)
-    ax3.set_ylabel('produced')
-    fig.savefig(f'{folder}/{condition}_target_predicted_produced.png')
-
-
-    fig = plt.figure()
-    ax1 = fig.add_axes([0.1, 0.68, 0.88, 0.30], xticklabels=[])
-    ax2 = fig.add_axes([0.1, 0.36, 0.88, 0.30], xticklabels=[], sharex=ax1)
-    ax3 = fig.add_axes([0.1, 0.04, 0.88, 0.30], xticklabels=[], sharex=ax1)
-    librosa.display.specshow(target_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax1, vmin=0, vmax=1)
-    ax1.set_ylabel('target')
-    librosa.display.specshow(prod_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax2, vmin=0, vmax=1)
-    ax2.set_ylabel('produced')
-    librosa.display.specshow(inv_mel.T, y_axis='mel', sr=44100, hop_length=220, fmin=10, fmax=12000, ax=ax3, vmin=0, vmax=1)
-    ax3.set_ylabel('initial')
-    fig.savefig(f'{folder}/{condition}_target_produced_initial.png')
     plt.show()  # this shows all saved figures
+
+
+def plot_mels(file_name, target_mel, initial_pred_mel, initial_prod_mel,
+        pred_mel, prod_mel):
+    """
+    Plots target, initial prediction, initial production, prediction and
+    production log mel spectrograms.
+
+    Parameters
+    ==========
+    file_name : str or True
+    target_mel : np.array
+    initial_pred_mel : np.array
+    initial_prod_mel : np.array
+    pred_mel : np.array
+    prod_mel : np.array
+
+    """
+    fig, ax = plt.subplots(nrows=6, figsize=(15, 18), facecolor="white")
+    librosa.display.specshow(target_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[0],
+            cmap=cm.magma)
+    ax[0].set_title("Target", fontsize=18)
+    librosa.display.specshow(initial_prod_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[1],
+            cmap=cm.magma)
+    ax[1].set_title("Initial Produced", fontsize=18)
+    librosa.display.specshow(initial_pred_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[2],
+            cmap=cm.magma)
+    ax[2].set_title("Initial Prediction", fontsize=18)
+    librosa.display.specshow(pred_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[3],
+            cmap=cm.magma)
+    ax[3].set_title("Planned Prediction", fontsize=18)
+    librosa.display.specshow(prod_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[4],
+            cmap=cm.magma)
+    ax[4].set_title("Planned Produced", fontsize=18)
+    librosa.display.specshow(target_mel.T, y_axis='mel',
+            x_axis='time', sr=44100, hop_length=220, ax=ax[5],
+            cmap=cm.magma)
+    ax[5].set_title("Target", fontsize=18)
+
+    ax[0].set_xticks([])
+    ax[1].set_xticks([])
+    ax[2].set_xticks([])
+    ax[3].set_xticks([])
+    ax[4].set_xticks([])
+    ax[0].set_xlabel("")
+    ax[1].set_xlabel("")
+    ax[2].set_xlabel("")
+    ax[3].set_xlabel("")
+    ax[4].set_xlabel("")
+    ax[5].set_xlabel("Time (s)", fontsize=15)
+    ax[0].set_ylabel("Hz", fontsize=15)
+    ax[1].set_ylabel("Hz", fontsize=15)
+    ax[2].set_ylabel("Hz", fontsize=15)
+    ax[3].set_ylabel("Hz", fontsize=15)
+    ax[4].set_ylabel("Hz", fontsize=15)
+    ax[5].set_ylabel("Hz", fontsize=15)
+
+    fig.tight_layout()
+
+    if file_name is True:  # only if identical to "True" interactive
+                           # blocking plotting
+       plt.show()
+    else:
+        fig.savefig(file_name)
 

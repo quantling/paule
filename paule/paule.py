@@ -34,10 +34,7 @@ import torch
 from torch.distributions.normal import Normal
 from torch.utils import data
 from torch.nn import L1Loss, MSELoss
-from matplotlib import pyplot as plt
 import soundfile as sf
-import librosa.display
-from matplotlib import cm
 
 # Set seed
 torch.manual_seed(20200905)
@@ -45,20 +42,22 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-from util import (speak, inv_normalize_cp, normalize_mel_librosa,
+from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, mel_to_sig,
         pad_batch_online)
-from models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
+from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
         MelEmbeddingModel_MelSmoothResidualUpsampling, Generator)
+from . import visualize
+
 
 DIR = os.path.dirname(__file__)
 
 
+PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss")
+
 rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
 l1 = L1Loss()
-
-PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss")
 
 
 def get_vel_acc_jerk(trajectory, *, lag=1):
@@ -238,7 +237,7 @@ class Paule():
                      log_semantics=False,
                      n_batches=6, batch_size=8, n_epochs=5,
                      log_gradients=False,
-                     plot=False, plot_save_file="test", 
+                     plot=False,
                      seed=None,
                      verbose=False):
         """
@@ -266,9 +265,9 @@ class Paule():
             update solely on produced acoustics during training or add training data
         log_ii : int
             log results and synthesize audio after ii number of inner iterations
-        plot : bool (False)
-        plot_save_file : str
-            file_name to store plots
+        plot : bool  or str (False)
+            if False no plotting; if a string is given this is used as the path
+            where to store the plots; if True interactive blocking plotting is enabled
         seed : int random seed
         verbose : bool (False)
 
@@ -571,41 +570,13 @@ class Paule():
                 prod_mel_ii = prod_mel[-1, :, :].detach().cpu().numpy().copy()
                 pred_mel_ii = pred_mel[-1, :, :].detach().cpu().numpy().copy()
 
-                fig, ax = plt.subplots(nrows=5, figsize=(15, 15), facecolor="white")
-                librosa.display.specshow(target_mel_ii.T, y_axis='mel', x_axis='time', sr=44100, hop_length=220,
-                                         ax=ax[0], cmap=cm.magma)
-                librosa.display.specshow(initial_pred_mel.T, y_axis='mel', x_axis='time', sr=44100, hop_length=220,
-                                         ax=ax[1], cmap=cm.magma)
-                librosa.display.specshow(initial_prod_mel.T, y_axis='mel', x_axis='time', sr=44100, hop_length=220,
-                                         ax=ax[2], cmap=cm.magma)
-                librosa.display.specshow(pred_mel_ii.T, y_axis='mel', x_axis='time', sr=44100, hop_length=220, ax=ax[3],
-                                         cmap=cm.magma)
-                librosa.display.specshow(prod_mel_ii.T, y_axis='mel', x_axis='time', sr=44100, hop_length=220, ax=ax[4],
-                                         cmap=cm.magma)
-
-                ax[0].set_xticks([])
-                ax[1].set_xticks([])
-                ax[2].set_xticks([])
-                ax[3].set_xticks([])
-                ax[0].set_xlabel("")
-                ax[1].set_xlabel("")
-                ax[2].set_xlabel("")
-                ax[3].set_xlabel("")
-                ax[4].set_xlabel("Time (s)", fontsize=15)
-                ax[0].set_ylabel("Hz", fontsize=15)
-                ax[1].set_ylabel("Hz", fontsize=15)
-                ax[2].set_ylabel("Hz", fontsize=15)
-                ax[3].set_ylabel("Hz", fontsize=15)
-                ax[4].set_ylabel("Hz", fontsize=15)
-
-                ax[0].set_title("Target", fontsize=18)
-                ax[1].set_title("Inverse Prediction", fontsize=18)
-                ax[2].set_title("Inverse Produced", fontsize=18)
-                ax[3].set_title("Planned Prediction", fontsize=18)
-                ax[4].set_title("Planned Produced", fontsize=18)
-
-                # plt.show()
-                fig.savefig(plot_save_file + "_%d" % ii_outer + ".png")
+                if plot is True:
+                    visualize.plot_mels(True, target_mel_ii, initial_pred_mel,
+                            initial_prod_mel, pred_mel_ii, prod_mel_ii)
+                else:
+                    visualize.plot_mels(f"{plot}_{ii_outer:03d}.png",
+                            target_mel_ii, initial_pred_mel, initial_prod_mel,
+                            pred_mel_ii, prod_mel_ii)
 
             prod_mel_steps.append(prod_mel_steps_ii)
             cp_steps.append(cp_steps_ii)
@@ -707,7 +678,6 @@ class Paule():
 
                         avg_loss.append(float(pred_loss.item()))
                     model_loss.append(np.mean(avg_loss))
-
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig

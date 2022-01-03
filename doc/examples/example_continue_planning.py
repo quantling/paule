@@ -19,7 +19,7 @@ file = target_acoustic
 SAVE_DIR = 'results'
 DEVICE = torch.device('cpu')
 
-save_file = SAVE_DIR + '/' + target_acoustic[:-4]
+save_file = SAVE_DIR + '/' + target_acoustic[:-4]  #+ '-continued'
 
 # load model
 pred_model = torch.load(f"{save_file}_pred_model.pt", map_location=DEVICE)
@@ -30,10 +30,9 @@ optimizer = torch.load(f"{save_file}_pred_optimizer.pt", map_location=DEVICE)
 with open(save_file + '.pkl', 'rb') as pfile:
     old_results = pickle.load(pfile)
 
-#initial_planned_cp = old_results.planned_cp
-initial_planned_cp = old_results[0]
+initial_planned_cp = old_results.planned_cp
 
-#paule_model = paule.Paule(pred_model=pred_model, pred_optimizer=optimizer, device=torch.device('cuda'))
+#paule_model = paule.Paule(pred_model=pred_model, pred_optimizer=optimizer, device=DEVICE)
 paule_model = paule.Paule(pred_model=pred_model, pred_optimizer=None, device=DEVICE)
 
 save_file += "-continued"
@@ -51,6 +50,5 @@ results = paule_model.plan_resynth(learning_rate_planning=0.01,
         log_semantics=True,
         n_batches=6, batch_size=8, n_epochs=5,
         log_gradients=False,
-        plot=True, plot_save_file=save_file, seed=None,
-        verbose=True)
+        plot=save_file, seed=None, verbose=True)
 

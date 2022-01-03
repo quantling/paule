@@ -2,7 +2,7 @@
 paule/pretrained_models/
 paule/data/
 doc/build/
-doc/examples/
 paule.egg-info/
 paule/__pycache__/
 dist/
+paule/.ipynb_checkpoints/
