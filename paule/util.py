@@ -16,7 +16,7 @@ elif sys.platform.startswith('win32'):
 elif sys.platform.startswith('darwin'):
     _FILE_ENDING = '.dylib'
 
-VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/VocalTractLabApi' + _FILE_ENDING))
+VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/libVocalTractLabApi' + _FILE_ENDING))
 del _FILE_ENDING
 
 
@@ -132,7 +132,7 @@ def speak(cp_param):
 
     """
     # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD2.speaker').encode())
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
 
     failure = VTL.vtlInitialize(speaker_file_name)
     if failure != 0:
@@ -143,11 +143,15 @@ def speak(cp_param):
     number_tube_sections = ctypes.c_int(0)
     number_vocal_tract_parameters = ctypes.c_int(0)
     number_glottis_parameters = ctypes.c_int(0)
+    number_audio_samples_per_tract_state = ctypes.c_int(0)
+    internal_sampling_rate = ctypes.c_double(0)
 
     VTL.vtlGetConstants(ctypes.byref(audio_sampling_rate),
                         ctypes.byref(number_tube_sections),
                         ctypes.byref(number_vocal_tract_parameters),
-                        ctypes.byref(number_glottis_parameters))
+                        ctypes.byref(number_glottis_parameters),
+                        ctypes.byref(number_audio_samples_per_tract_state),
+                        ctypes.byref(internal_sampling_rate))
 
     assert audio_sampling_rate.value == 44100
     assert number_vocal_tract_parameters.value == 19
@@ -178,15 +182,6 @@ def speak(cp_param):
     failure = VTL.vtlSynthesisReset()
     if failure != 0:
         raise ValueError(f'Error in vtlSynthesisReset! Errorcode: {failure}')
-
-    # Set initial state of time-domain synthesis
-    failure = VTL.vtlSynthesisAddTract(
-                    0,
-                    ctypes.byref(audio),  # output
-                    ctypes.byref(tract_params),  # input
-                    ctypes.byref(glottis_params))  # input
-    if failure != 0:
-        raise ValueError(f'Error in vtlSynthesisAddTract in setting initial state! Errorcode: {failure}')
 
     # Call the synthesis function. It may calculate a few seconds.
     failure = VTL.vtlSynthBlock(
@@ -318,7 +313,7 @@ def export_svgs(cps, path='svgs/', hop_length=5):
     """
     n_tract_parameter = 19
     # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD2.speaker').encode())
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
 
     failure = VTL.vtlInitialize(speaker_file_name)
     if failure != 0:
@@ -337,6 +332,8 @@ def export_svgs(cps, path='svgs/', hop_length=5):
             os.mkdir(path)
 
         VTL.vtlExportTractSvg(tract_params, file_name)
+
+    VTL.vtlClose()
 
 
 class RMSELoss(torch.nn.Module):
