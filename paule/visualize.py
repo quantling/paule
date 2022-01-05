@@ -13,7 +13,7 @@ from matplotlib import cm
 from . import util
 
 
-def visualize_result(results, condition='prefix', folder='data'):
+def visualize_results(results, condition='prefix', folder='data'):
     """
     Stores all results in data/ folder.
 
