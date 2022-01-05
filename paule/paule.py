@@ -53,7 +53,12 @@ from . import visualize
 DIR = os.path.dirname(__file__)
 
 
-PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss")
+PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, model_loss")
+
+
+BestSynthesisAcoustic = namedtuple('BestSynthesisAcoustic', "mel_loss, planned_cp, prod_sig, prod_mel, pred_mel")
+BestSynthesisSemantic = namedtuple('BestSynthesisSemantic', "semvec_loss, planned_cp, prod_sig, prod_semvec, pred_semvec")
+
 
 rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
@@ -222,6 +227,9 @@ class Paule():
             self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = rmse_loss
 
+        self.best_synthesis_acoustic = None  
+        self.best_synthesis_semantic = None    
+
 
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=None,
                      target_acoustic=None,
@@ -287,7 +295,7 @@ class Paule():
         if log_ii is None:
             log_ii = n_inner
 
-        assert log_ii > 0 and log_ii <= n_inner, 'results can only be logged between first and last planning step'
+        assert log_ii <= n_inner, 'results can only be logged between first and last planning step'
 
         if isinstance(target_acoustic, str):
             target_sig, target_sr = sf.read(target_acoustic)
@@ -413,7 +421,31 @@ class Paule():
         pred_mel_steps = list()
         prod_mel_steps = list()
         model_loss = list()
-        optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning)
+        optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning) 
+
+        # initial results
+        with torch.no_grad():
+            initial_pred_mel = self.pred_model(xx_new)
+            initial_pred_semvec = self.embedder(initial_pred_mel, (torch.tensor(initial_pred_mel.shape[1]),))
+
+        initial_sig, initial_sr = speak(inv_normalize_cp(initial_cp))
+        
+        initial_prod_mel = librosa_melspec(initial_sig, initial_sr)
+        initial_prod_mel = normalize_mel_librosa(initial_prod_mel)
+        initial_prod_mel.shape = initial_pred_mel.shape
+        initial_prod_mel = torch.from_numpy(initial_prod_mel)
+        initial_prod_mel = initial_prod_mel.to(self.device)
+        
+        with torch.no_grad():
+            initial_prod_semvec = self.embedder(initial_prod_mel, (torch.tensor(initial_prod_mel.shape[1]),))
+        
+        initial_prod_mel = initial_prod_mel[-1, :, :].detach().cpu().numpy().copy()
+        initial_pred_mel = initial_pred_mel[-1, :, :].detach().cpu().numpy().copy()
+        initial_prod_semvec = initial_prod_semvec[-1, :].detach().cpu().numpy().copy()
+        initial_pred_semvec = initial_pred_semvec[-1, :].detach().cpu().numpy().copy()
+
+        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)  
+        self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)    
 
         # continue learning
         start_time = time.time()
@@ -429,7 +461,7 @@ class Paule():
                 pred_mel = self.pred_model(xx_new)
 
                 if objective in ('semvec', 'acoustic_semvec') or (
-                        log_semantics and ((ii + 1) % log_ii == 0 or ii == 0)):
+                        log_semantics and ((ii + 1) % log_ii == 0)):
                     seq_length = pred_mel.shape[1]
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                     pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
@@ -437,7 +469,7 @@ class Paule():
                 # discrepancy,mel_loss, vel_loss, jerk_loss, pred_mel = constrained_criterion(tanh_straight_through(xx_new), target_mel)
                 if objective == 'acoustic':
                     discrepancy, mel_loss, vel_loss, jerk_loss = criterion(pred_mel, target_mel, xx_new)
-                    if (ii + 1) % log_ii == 0 or ii == 0:
+                    if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         planned_mel_loss_steps.append(float(mel_loss.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
@@ -462,7 +494,7 @@ class Paule():
                     discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss = criterion(pred_mel, target_mel,
                                                                                         pred_semvec, target_semvec,
                                                                                         xx_new)
-                    if (ii + 1) % log_ii == 0 or ii == 0:
+                    if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         planned_mel_loss_steps.append(float(mel_loss.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
@@ -481,7 +513,7 @@ class Paule():
                     discrepancy, vel_loss, jerk_loss, semvec_loss = criterion(pred_semvec, target_semvec, xx_new)
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     
-                    if (ii + 1) % log_ii == 0 or ii == 0:
+                    if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
                         jerk_loss_steps.append(float(jerk_loss.item()))
@@ -514,7 +546,7 @@ class Paule():
                 if log_gradients:
                     grad_steps.append(xx_new.grad.detach().clone())
 
-                if (ii + 1) % log_ii == 0 or ii == 0:
+                if (ii + 1) % log_ii == 0:
                     xx_new_numpy = xx_new[-1, :, :].detach().cpu().numpy().copy()
                     cp_steps_ii.append(xx_new_numpy)
 
@@ -546,7 +578,20 @@ class Paule():
                         if verbose:
                             print("Produced Semvec Loss: ", float(prod_semvec_loss.item()))
                             print("")
+                        
+                        best_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
+                        best_synthesis_semantic = BestSynthesisSemantic(float(prod_semvec_loss.item()), xx_new_numpy, sig, prod_semvec[-1, :].detach().cpu().numpy().copy(),pred_semvec[-1, :].detach().cpu().numpy().copy())
+
+                        if self.best_synthesis_acoustic.mel_loss > best_synthesis_acoustic.mel_loss:
+                            self.best_synthesis_acoustic = best_synthesis_acoustic
+                        if self.best_synthesis_semantic.semvec_loss > best_synthesis_semantic.semvec_loss:
+                            self.best_synthesis_semnatic = best_synthesis_semantic
+
                     else:
+                        best_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
+                        if self.best_synthesis_acoustic.mel_loss > best_synthesis_acoustic.mel_loss:
+                            self.best_synthesis_acoustic = best_synthesis_acoustic
+                        
                         if verbose:
                             print("")
 
@@ -560,10 +605,6 @@ class Paule():
                     xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
 
                 xx_new.grad.zero_()
-
-                if ii_outer == 0 and ii == 0:
-                    initial_pred_mel = pred_mel[-1, :, :].detach().cpu().numpy().copy()
-                    initial_prod_mel = prod_mel[-1, :, :].detach().cpu().numpy().copy()
 
             if plot:
                 target_mel_ii = target_mel[-1, :, :].detach().cpu().numpy().copy()
@@ -682,42 +723,56 @@ class Paule():
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
         prod_sr = sr
-        target_mel = target_mel[-1, :, :].detach().cpu().numpy()
-        prod_mel = prod_mel[-1, :, :].detach().cpu().numpy()
+
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
+            pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
+            prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
+
+        target_mel = target_mel[-1, :, :].detach().cpu().numpy()
+        prod_mel = prod_mel[-1, :, :].detach().cpu().numpy()
         pred_mel = pred_mel[-1, :, :].detach().cpu().numpy()
+        prod_semvec = prod_semvec[-1, :].detach().cpu().numpy()
+        pred_semvec = pred_semvec[-1, :].detach().cpu().numpy()
 
         print("--- %.2f min ---" % ((time.time() - start_time) / 60))
 
         #  0. planned_cp
         #  1. initial_cp
-        #  2. target_sig
-        #  3. target_sr
-        #  4. target_mel
-        #  5. prod_sig
-        #  6. prod_sr
-        #  7. prod_mel
-        #  8. pred_mel
-        #  9. prod_loss_steps
-        # 10. planned_loss_steps
-        # 11. planned_mel_loss_steps
-        # 12. vel_loss_steps
-        # 13. jerk_loss_steps
-        # 14. pred_semvec_loss_steps
-        # 15. prod_semvec_loss_steps
-        # 16. cp_steps
-        # 17. pred_semvec_steps
-        # 18. prod_semvec_steps
-        # 19. grad_steps
-        # 20. sig_steps
-        # 21. prod_mel_steps
-        # 22. pred_mel_steps
-        # 23. model_loss
+        #  3. initial_sig
+        #  4. initial_sr
+        #  5. initial_prod_mel
+        #  6. initial_pred_mel
+        #  7. target_sig
+        #  8. target_sr
+        #  9. target_mel
+        # 10. prod_sig
+        # 11. prod_sr
+        # 12. prod_mel
+        # 13. pred_mel
+        # 14. initial_prod_semvec
+        # 15. initial_pred_semvec
+        # 16. prod_semvec
+        # 17. pred_semvec
+        # 18. prod_loss_steps
+        # 19. planned_loss_steps
+        # 20. planned_mel_loss_steps
+        # 21. vel_loss_steps
+        # 22. jerk_loss_steps
+        # 23. pred_semvec_loss_steps
+        # 24. prod_semvec_loss_steps
+        # 25. cp_steps
+        # 26. pred_semvec_steps
+        # 27. prod_semvec_steps
+        # 28. grad_steps
+        # 29. sig_steps
+        # 30. prod_mel_steps
+        # 31. pred_mel_steps
+        # 32. model_loss
 
-        return PlanningResults(planned_cp, initial_cp, target_sig, target_sr,
-                target_mel, prod_sig, prod_sr, prod_mel,
-                pred_mel, prod_loss_steps, planned_loss_steps,
+        return PlanningResults(planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel,
+                target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel,
+                pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps,
                 planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
                 pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
                 pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
