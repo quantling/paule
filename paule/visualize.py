@@ -18,24 +18,16 @@ def visualize_results(results, condition='prefix', folder='data'):
     Stores all results in data/ folder.
 
     """
-    #(planned_cp, initial_cp, target_sig, target_mel, prod_sig, prod_mel, pred_mel, loss_steps,
-    #loss_mel_steps, loss_semvec_steps, loss_jerk_steps, loss_velocity_steps, loss_prod_steps) = results
-
     base_name = os.path.join(folder, f'{condition}')
 
-    initial_pred_mel = results.pred_mel_steps[0][0]
-    initial_prod_mel = results.prod_mel_steps[0][0]
-    initial_sig = results.sig_steps[0]
-    initial_sr = results.prod_sr
-
     # save mel plot
-    plot_mels(f"{base_name}_mel.png", results.target_mel, initial_pred_mel,
-            initial_prod_mel, results.pred_mel, results.prod_mel)
+    plot_mels(f"{base_name}_mel.png", results.target_mel, results.initial_pred_mel,
+            results.initial_prod_mel, results.pred_mel, results.prod_mel)
 
     # save audio
     target_sr = prod_sr = 44100
     sf.write(f'{base_name}_planned.flac', results.prod_sig, results.prod_sr)
-    sf.write(f'{base_name}_initial.flac', initial_sig, initial_sr)
+    sf.write(f'{base_name}_initial.flac', results.initial_sig, results.initial_sr)
     sf.write(f'{base_name}_target.flac', results.target_sig, results.target_sr)
 
     # save loss plot

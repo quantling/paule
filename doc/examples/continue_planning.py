@@ -14,10 +14,10 @@ import torch
 from paule import paule
 
 
-target_acoustic = 'test3.wav'
+target_acoustic = 'test4.wav'
 file = target_acoustic
 SAVE_DIR = 'results'
-DEVICE = torch.device('cpu')
+DEVICE = torch.device('cuda')
 
 save_file = SAVE_DIR + '/' + target_acoustic[:-4]  #+ '-continued'
 
@@ -43,7 +43,7 @@ results = paule_model.plan_resynth(learning_rate_planning=0.01,
         initial_cp=initial_planned_cp,
         initialize_from=None,
         objective="acoustic",
-        n_outer=40, n_inner=50,
+        n_outer=10, n_inner=50,
         continue_learning=True,
         add_training_data=False,
         log_ii=1,
