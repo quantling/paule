@@ -15,9 +15,10 @@ tqdm.pandas()
 
 paule_model = paule.Paule(device=torch.device('cuda'))
 
-target_acoustic = '000003-Wissenschaft.wav'
+#target_acoustic = '000003-Wissenschaft.wav'
 #target_acoustic = 'tino_essv2020.wav'
 #target_acoustic = 'test4.wav'
+target_acoustic = 'frohes_neues_Jahr.flac'
 
 
 file = target_acoustic
@@ -30,7 +31,7 @@ results = paule_model.plan_resynth(learning_rate_planning=0.01,
         target_acoustic=target_acoustic,
         initialize_from="acoustic",
         objective="acoustic",
-        n_outer=5, n_inner=25,
+        n_outer=10, n_inner=25,
         #n_outer=2, n_inner=8,
         continue_learning=True,
         add_training_data=False,
