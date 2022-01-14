@@ -43,10 +43,10 @@ random.seed(20200905)
 tqdm.pandas()
 
 from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
-        stereo_to_mono, librosa_melspec, RMSELoss, mel_to_sig,
+        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajacetory_loss, mel_to_sig,
         pad_batch_online)
 from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
-        MelEmbeddingModel_MelSmoothResidualUpsampling, Generator)
+        MelEmbeddingModel_MelSmoothResidualUpsampling, MelEmbeddingModel, Generator)
 from . import visualize
 
 
@@ -63,15 +63,6 @@ BestSynthesisSemantic = namedtuple('BestSynthesisSemantic', "semvec_loss, planne
 rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
 l1 = L1Loss()
-
-
-def get_vel_acc_jerk(trajectory, *, lag=1):
-    """returns (velocity, acceleration, jerk) tuple"""
-    velocity = (trajectory[:, lag:, :] - trajectory[:, :-lag, :]) / lag
-    acc = (velocity[:, 1:, :] - velocity[:, :-1, :]) / 1.0
-    jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
-    return velocity, acc, jerk
-
 
 
 def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
@@ -153,7 +144,7 @@ class Paule():
     embedder model as well as data used for continue learning.
     """
 
-    def __init__(self, *, pred_model=None, pred_optimizer=None, inv_model=None,
+    def __init__(self, *, pred_model=None, pred_optimizer=None, inv_model=None,inv_optimizer=None,
                  embedder=None, cp_gen_model=None, mel_gen_model=None,
                  continue_data=None, device=torch.device('cpu')):
 
@@ -185,13 +176,12 @@ class Paule():
         if embedder:
             self.embedder = embedder
         else:
-            self.embedder = MelEmbeddingModel_MelSmoothResidualUpsampling(mel_smooth_layers=0, num_lstm_layers=1,
-                                                                          hidden_size=720).double()
+            self.embedder = MelEmbeddingModel(num_lstm_layers=2, hidden_size=720).double()
             self.embedder.load_state_dict(torch.load(
-                os.path.join(DIR, "pretrained_models/embedder/embed_model_common_voice_syn_rec_0_1_720_8192_rmse_lr_00001_200.pt"),
+                os.path.join(DIR, "pretrained_models/embedder/embed_model_common_voice_syn_rec_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                 map_location=self.device))
         self.embedder = self.embedder.to(self.device)
-
+        self.embedder.eval()
         # CP GENerative MODEL
         if cp_gen_model:
             self.cp_gen_model = cp_gen_model
@@ -227,27 +217,35 @@ class Paule():
             self.pred_optimizer = torch.optim.Adam(self.pred_model.parameters(), lr=0.001)
         self.pred_criterion = rmse_loss
 
+        if inv_optimizer:
+            self.inv_optimizer = inv_optimizer
+        else:
+            self.inv_optimizer = torch.optim.Adam(self.inv_model.parameters(), lr=0.001)
+        self.inv_criterion = cp_trajacetory_loss
+
         self.best_synthesis_acoustic = None  
         self.best_synthesis_semantic = None    
 
 
-    def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=None,
+    def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=0.001,
+                     learning_rate_learning_inv=None,
                      target_acoustic=None,
                      target_semvec=None,
                      target_seq_length=None,
                      initial_cp=None,
                      initialize_from="acoustic",
                      objective="acoustic",
-                     n_outer=10, n_inner=50,
+                     n_outer=5, n_inner=24,
                      continue_learning=True,
+                     continue_learning_inv=False,
                      add_training_data=False,
-                     log_ii=None,
-                     log_semantics=False,
-                     n_batches=6, batch_size=8, n_epochs=5,
+                     log_ii=1,
+                     log_semantics=True,
+                     n_batches=3, batch_size=8, n_epochs=10,
                      log_gradients=False,
                      plot=False,
                      seed=None,
-                     verbose=False):
+                     verbose=True):
         """
         plans resynthesis cp trajectories.
 
@@ -292,6 +290,10 @@ class Paule():
             for param_group in self.pred_optimizer.param_groups:
                 param_group['lr'] = learning_rate_learning
 
+        if learning_rate_learning_inv:
+            for param_group in self.inv_optimizer.param_groups:
+                param_group['lr'] = learning_rate_learning_inv
+
         if log_ii is None:
             log_ii = n_inner
 
@@ -333,7 +335,9 @@ class Paule():
             with torch.no_grad():
                 target_semvec = self.embedder(target_mel, (torch.tensor(target_mel.shape[1]),))
         else:
-            target_semvec = target_semvec.clone()
+            if not isinstance(target_semvec, torch.Tensor):
+                target_semvec = torch.tensor(target_semvec)
+            target_semvec = target_semvec.view(1, 300).detach().clone()
         target_semvec = target_semvec.to(self.device)
 
         # def constrained_criterion(xx_new, target_mel):
@@ -392,7 +396,6 @@ class Paule():
                 velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                 loss = mel_loss + velocity_loss + jerk_loss
                 return loss, mel_loss, velocity_loss, jerk_loss
-
 
         elif objective == 'semvec':
             def criterion(pred_semvec, target_semvec, cps):
@@ -460,15 +463,16 @@ class Paule():
             for ii in range(n_inner):
                 pred_mel = self.pred_model(xx_new)
 
-                if objective in ('semvec', 'acoustic_semvec') or (
-                        log_semantics and ((ii + 1) % log_ii == 0)):
+                if objective in ('semvec', 'acoustic_semvec'):
                     seq_length = pred_mel.shape[1]
+                    self.embedder.train()
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                     pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
 
                 # discrepancy,mel_loss, vel_loss, jerk_loss, pred_mel = constrained_criterion(tanh_straight_through(xx_new), target_mel)
                 if objective == 'acoustic':
                     discrepancy, mel_loss, vel_loss, jerk_loss = criterion(pred_mel, target_mel, xx_new)
+
                     if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         planned_mel_loss_steps.append(float(mel_loss.item()))
@@ -476,6 +480,9 @@ class Paule():
                         jerk_loss_steps.append(float(jerk_loss.item()))
 
                         if log_semantics:
+                            seq_length = pred_mel.shape[1]
+                            pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
+                            pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
                             semvec_loss = float(rmse_loss(pred_semvec, target_semvec).item())
                             pred_semvec_loss_steps.append(semvec_loss)
                             
@@ -512,7 +519,7 @@ class Paule():
                 elif objective == 'semvec':
                     discrepancy, vel_loss, jerk_loss, semvec_loss = criterion(pred_semvec, target_semvec, xx_new)
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    
+
                     if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
@@ -532,6 +539,7 @@ class Paule():
                 else:
                     raise ValueError(f'unkown objective {objective}')
 
+                optimizer.zero_grad()
                 discrepancy.backward()
 
                 # if verbose:
@@ -569,6 +577,7 @@ class Paule():
                         print("Produced Mel Loss: ", float(prod_loss.item()))
 
                     if objective in ('semvec', 'acoustic_semvec') or log_semantics:
+                        self.embedder.eval()
                         prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
                         prod_semvec_steps_ii.append(prod_semvec[-1, :].detach().cpu().numpy().copy())
 
@@ -596,6 +605,7 @@ class Paule():
                             print("")
 
                 optimizer.step()
+
                 with torch.no_grad():
                     # xx_new.data = torch.maximum(-1*torch.ones_like(xx_new),
                     # torch.minimum(torch.ones_like(xx_new),
@@ -604,7 +614,7 @@ class Paule():
                     # xx_new.data = (xx_new.data - learning_rate * xx_new.grad).clamp(-1,1)
                     xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
 
-                xx_new.grad.zero_()
+                #xx_new.grad.zero_()
 
             if plot:
                 target_mel_ii = target_mel[-1, :, :].detach().cpu().numpy().copy()
@@ -701,6 +711,8 @@ class Paule():
 
                 for e in range(n_epochs):
                     avg_loss = list()
+                    if continue_learning_inv:
+                        avg_loss_inv = list()
                     for j in range(n_train_batches):
                         lens_input_j = lens_input[j * batch_size:(j * batch_size) + batch_size]
                         batch_input = inps.iloc[j * batch_size:(j * batch_size) + batch_size]
@@ -710,7 +722,7 @@ class Paule():
                         batch_output = tgts.iloc[j * batch_size:(j * batch_size) + batch_size]
                         batch_output = pad_batch_online(lens_output_j, batch_output, self.device)
 
-                        Y_hat = self.pred_model(batch_input, lens_input)
+                        Y_hat = self.pred_model(batch_input, lens_input_j)
 
                         self.pred_optimizer.zero_grad()
                         pred_loss = self.pred_criterion(Y_hat, batch_output)
@@ -718,6 +730,20 @@ class Paule():
                         self.pred_optimizer.step()
 
                         avg_loss.append(float(pred_loss.item()))
+
+                        if continue_learning_inv:
+                            Y_hat = self.inv_model(batch_output, lens_output_j)
+
+                            self.inv_optimizer.zero_grad()
+                            inv_loss = self.inv_criterion(Y_hat, batch_input)
+                            inv_sub_losses = inv_loss[1:]  # sublosses
+                            inv_loss = inv_loss[0] # total loss
+                            inv_loss.backward()
+                            self.inv_optimizer.step()
+
+                            avg_loss_inv.append(float(inv_loss.item()))
+
+
                     model_loss.append(np.mean(avg_loss))
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
@@ -726,6 +752,7 @@ class Paule():
 
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
+            self.embedder.eval()
             pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
             prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
 
