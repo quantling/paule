@@ -348,6 +348,43 @@ class RMSELoss(torch.nn.Module):
         loss = torch.sqrt(self.mse(yhat, y) + self.eps)
         return loss
 
+def get_vel_acc_jerk(trajectory, *, lag=1):
+    """returns (velocity, acceleration, jerk) tuple"""
+    velocity = (trajectory[:, lag:, :] - trajectory[:, :-lag, :]) / lag
+    acc = (velocity[:, 1:, :] - velocity[:, :-1, :]) / 1.0
+    jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
+    return velocity, acc, jerk
+
+rmse_loss = RMSELoss(eps=0)    
+
+def cp_trajacetory_loss(Y_hat, tgts):
+    """
+    Calculate additive loss using the RMSE of position velocity , acc and jerk
+
+    :param Y_hat: 3D torch.Tensor
+        model prediction
+    :param tgts: 3D torch.Tensor
+        target tensor
+    :return loss, pos_loss, vel_loss, acc_loss, jerk_loss: torch.Tensors
+        summed total loss with all individual losses
+    """
+
+    velocity, acc, jerk = get_vel_acc_jerk(tgts)
+    velocity2, acc2, jerk2 = get_vel_acc_jerk(tgts, lag=2)
+    velocity4, acc4, jerk4 = get_vel_acc_jerk(tgts, lag=4)
+
+    Y_hat_velocity, Y_hat_acceleration, Y_hat_jerk = get_vel_acc_jerk(Y_hat)
+    Y_hat_velocity2, Y_hat_acceleration2, Y_hat_jerk2 = get_vel_acc_jerk(Y_hat, lag=2)
+    Y_hat_velocity4, Y_hat_acceleration4, Y_hat_jerk4 = get_vel_acc_jerk(Y_hat, lag=4)
+
+    pos_loss = rmse_loss(Y_hat, tgts)
+    vel_loss = rmse_loss(Y_hat_velocity, velocity) + rmse_loss(Y_hat_velocity2, velocity2) + rmse_loss(Y_hat_velocity4, velocity4)
+    jerk_loss = rmse_loss(Y_hat_jerk, jerk) + rmse_loss(Y_hat_jerk2, jerk2) + rmse_loss(Y_hat_jerk4, jerk4)
+    acc_loss = rmse_loss(Y_hat_acceleration, acc) + rmse_loss(Y_hat_acceleration2, acc2) + rmse_loss(Y_hat_acceleration4, acc4)
+
+    loss = pos_loss + vel_loss + acc_loss + jerk_loss
+    return loss, pos_loss, vel_loss, acc_loss, jerk_loss
+
 
 def add_and_pad(xx, max_len, with_onset_dim=False):
     """
