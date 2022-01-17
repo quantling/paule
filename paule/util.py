@@ -9,17 +9,26 @@ import librosa
 import torch.nn
 import pandas as pd
 
-DIR = os.path.dirname(__file__)
-_FILE_ENDING = ''
-if sys.platform.startswith('linux'):
-    _FILE_ENDING = '.so'
-elif sys.platform.startswith('win32'):
-    _FILE_ENDING = '.dll'
-elif sys.platform.startswith('darwin'):
-    _FILE_ENDING = '.dylib'
 
-VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/libVocalTractLabApi' + _FILE_ENDING))
-del _FILE_ENDING
+# load vocaltractlab binary
+DIR = os.path.dirname(__file__)
+PREFIX = 'lib'
+SUFFIX = ''
+if sys.platform.startswith('linux'):
+    SUFFIX = '.so'
+elif sys.platform.startswith('win32'):
+    PREFIX = ''
+    SUFFIX = '.dll'
+elif sys.platform.startswith('darwin'):
+    SUFFIX = '.dylib'
+VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR,
+    f'vocaltractlab_api/{PREFIX}VocalTractLabApi{SUFFIX}'))
+# initialize vtl
+speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
+failure = VTL.vtlInitialize(speaker_file_name)
+if failure != 0:
+    raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
+del PREFIX, SUFFIX, speaker_file_name, failure
 
 
 # This should be done on all cp_deltas
@@ -133,13 +142,6 @@ def speak(cp_param):
         110 / 44100``
 
     """
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     # get some constants
     audio_sampling_rate = ctypes.c_int(0)
     number_tube_sections = ctypes.c_int(0)
@@ -195,8 +197,6 @@ def speak(cp_param):
                     0)
     if failure != 0:
         raise ValueError('Error in vtlSynthBlock! Errorcode: %i' % failure)
-
-    VTL.vtlClose()
 
     return (np.array(audio[:-2000]), 44100)
 
@@ -314,12 +314,6 @@ def export_svgs(cps, path='svgs/', hop_length=5):
 
     """
     n_tract_parameter = 19
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
 
     for ii in range(cps.shape[0] // hop_length):
         jj = ii * hop_length
@@ -334,8 +328,6 @@ def export_svgs(cps, path='svgs/', hop_length=5):
             os.mkdir(path)
 
         VTL.vtlExportTractSvg(tract_params, file_name)
-
-    VTL.vtlClose()
 
 
 class RMSELoss(torch.nn.Module):
@@ -463,12 +455,6 @@ def cps_to_ema_and_mesh(cps, file_prefix, *, path=""):
         all output is writen to files.
 
     """
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
 
     # get some constants
     audio_sampling_rate = ctypes.c_int(0)
@@ -524,8 +510,6 @@ def cps_to_ema_and_mesh(cps, file_prefix, *, path=""):
             path.encode(), file_prefix.encode())
     if failure != 0:
         raise ValueError('Error in vtlTractSequenceToEmaAndMesh! Errorcode: %i' % failure)
-
-    VTL.vtlClose()
 
 
 def cps_to_ema(cps):
