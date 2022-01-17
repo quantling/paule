@@ -243,6 +243,8 @@ class Paule():
                      log_semantics=True,
                      n_batches=3, batch_size=8, n_epochs=10,
                      log_gradients=False,
+                     log_signals = False,
+                     log_cps = False,
                      plot=False,
                      seed=None,
                      verbose=True):
@@ -465,7 +467,7 @@ class Paule():
 
                 if objective in ('semvec', 'acoustic_semvec'):
                     seq_length = pred_mel.shape[1]
-                    self.embedder.train()
+                    self.embedder = self.embedder.train()
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                     pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
 
@@ -559,7 +561,9 @@ class Paule():
                     cp_steps_ii.append(xx_new_numpy)
 
                     sig, sr = speak(inv_normalize_cp(xx_new_numpy))
-                    sig_steps.append(sig)
+
+                    if log_signals:
+                        sig_steps.append(sig)
 
                     prod_mel = librosa_melspec(sig, sr)
                     prod_mel = normalize_mel_librosa(prod_mel)
@@ -577,7 +581,7 @@ class Paule():
                         print("Produced Mel Loss: ", float(prod_loss.item()))
 
                     if objective in ('semvec', 'acoustic_semvec') or log_semantics:
-                        self.embedder.eval()
+                        self.embedder = self.embedder.eval()
                         prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
                         prod_semvec_steps_ii.append(prod_semvec[-1, :].detach().cpu().numpy().copy())
 
@@ -594,7 +598,7 @@ class Paule():
                         if self.best_synthesis_acoustic.mel_loss > best_synthesis_acoustic.mel_loss:
                             self.best_synthesis_acoustic = best_synthesis_acoustic
                         if self.best_synthesis_semantic.semvec_loss > best_synthesis_semantic.semvec_loss:
-                            self.best_synthesis_semnatic = best_synthesis_semantic
+                            self.best_synthesis_semantic = best_synthesis_semantic
 
                     else:
                         best_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
@@ -630,7 +634,8 @@ class Paule():
                             pred_mel_ii, prod_mel_ii)
 
             prod_mel_steps.append(prod_mel_steps_ii)
-            cp_steps.append(cp_steps_ii)
+            if log_cps:
+                cp_steps.append(cp_steps_ii)
             pred_mel_steps.append(pred_mel_steps_ii)
             pred_semvec_steps.append(pred_semvec_steps_ii)
             prod_semvec_steps.append(prod_semvec_steps_ii)
@@ -709,6 +714,9 @@ class Paule():
                 lens_input = torch.tensor(np.array(continue_data.lens_input)).to(self.device)
                 lens_output = torch.tensor(np.array(continue_data.lens_output)).to(self.device)
 
+                del continue_data
+                del produced_data
+
                 for e in range(n_epochs):
                     avg_loss = list()
                     if continue_learning_inv:
@@ -752,7 +760,7 @@ class Paule():
 
         with torch.no_grad():
             pred_mel = self.pred_model(xx_new)
-            self.embedder.eval()
+            self.embedder = self.embedder.eval()
             pred_semvec = self.embedder(pred_mel, (torch.tensor(pred_mel.shape[1]),))
             prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
 
