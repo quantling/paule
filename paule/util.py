@@ -1,11 +1,13 @@
 import ctypes
 import os
 import sys
+import tempfile
 
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 import torch.nn
+import pandas as pd
 
 DIR = os.path.dirname(__file__)
 _FILE_ENDING = ''
@@ -168,7 +170,7 @@ def speak(cp_param):
     glottis_params = (ctypes.c_double * (number_frames * number_glottis_parameters.value))()
 
     # fill in data
-    tmp = np.ascontiguousarray(cp_param[:, 0:19]) # am einen stück speicher 
+    tmp = np.ascontiguousarray(cp_param[:, 0:19])
     tmp.shape = (number_frames * 19,)
     tract_params[:] = tmp
     del tmp
@@ -400,4 +402,117 @@ def pad_batch_online(lens, data_to_pad, device="cpu", with_onset_dim=False):
         lambda x: add_and_pad(x, max_len, with_onset_dim=with_onset_dim)))).to(device)
 
     return padded_data
+
+
+def cps_to_ema_and_mesh(cps, file_prefix, *, path=""):
+    """
+    Calls the vocal tract lab to generate synthesized EMA trajectories.
+
+    Parameters
+    ==========
+    cps : np.array
+        2D array containing the vocal and glottis parameters for each time step
+        which is 110 / 44100 seoconds (roughly 2.5 ms); first dimension is
+        sequence and second is vocal tract lab parameters, i. e. (n_sequence,
+        30)
+    file_prefix : str
+        the prefix of the files written
+    path : str
+        path where to put the output files
+
+    Returns
+    =======
+    None : None
+        all output is writen to files.
+
+    """
+    # initialize vtl
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
+
+    failure = VTL.vtlInitialize(speaker_file_name)
+    if failure != 0:
+        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
+
+    # get some constants
+    audio_sampling_rate = ctypes.c_int(0)
+    number_tube_sections = ctypes.c_int(0)
+    number_vocal_tract_parameters = ctypes.c_int(0)
+    number_glottis_parameters = ctypes.c_int(0)
+    number_audio_samples_per_tract_state = ctypes.c_int(0)
+    internal_sampling_rate = ctypes.c_double(0)
+
+    VTL.vtlGetConstants(ctypes.byref(audio_sampling_rate),
+                        ctypes.byref(number_tube_sections),
+                        ctypes.byref(number_vocal_tract_parameters),
+                        ctypes.byref(number_glottis_parameters),
+                        ctypes.byref(number_audio_samples_per_tract_state),
+                        ctypes.byref(internal_sampling_rate))
+
+    assert audio_sampling_rate.value == 44100
+    assert number_vocal_tract_parameters.value == 19
+    assert number_glottis_parameters.value == 11
+
+    number_frames = cps.shape[0]
+
+    # init the arrays
+    tract_params = (ctypes.c_double * (number_frames * number_vocal_tract_parameters.value))()
+    glottis_params = (ctypes.c_double * (number_frames * number_glottis_parameters.value))()
+
+    # fill in data
+    tmp = np.ascontiguousarray(cps[:, 0:19])
+    tmp.shape = (number_frames * 19,)
+    tract_params[:] = tmp
+    del tmp
+
+    tmp = np.ascontiguousarray(cps[:, 19:30])
+    tmp.shape = (number_frames * 11,)
+    glottis_params[:] = tmp
+    del tmp
+
+    number_ema_points = 3
+    surf = (ctypes.c_int * number_ema_points)()
+    surf[:] = np.array([16, 16, 16])  # 16 = TONGUE
+
+    vert = (ctypes.c_int * number_ema_points)()
+    vert[:] = np.array([115, 225, 335])  # Tongue Back (TB) = 115; Tongue Middle (TM) = 225; Tongue Tip (TT) = 335
+
+    if not os.path.exists(path):
+        os.mkdir(path)
+
+    failure = VTL.vtlTractSequenceToEmaAndMesh(
+            ctypes.byref(tract_params), ctypes.byref(glottis_params),
+            number_vocal_tract_parameters, number_glottis_parameters,
+            number_frames, number_ema_points,
+            ctypes.byref(surf), ctypes.byref(vert),
+            path.encode(), file_prefix.encode())
+    if failure != 0:
+        raise ValueError('Error in vtlTractSequenceToEmaAndMesh! Errorcode: %i' % failure)
+
+    VTL.vtlClose()
+
+
+def cps_to_ema(cps):
+    """
+    Calls the vocal tract lab to generate synthesized EMA trajectories.
+
+    Parameters
+    ==========
+    cps : np.array
+        2D array containing the vocal and glottis parameters for each time step
+        which is 110 / 44100 seoconds (roughly 2.5 ms); first dimension is
+        sequence and second is vocal tract lab parameters, i. e. (n_sequence,
+        30)
+
+    Returns
+    =======
+    emas : pd.DataFrame
+        returns the 3D ema points for different virtual EMA sensors in a
+        pandas.DataFrame
+
+    """
+    with tempfile.TemporaryDirectory(prefix='python_paule_') as path:
+        file_name = 'pyndl_util_ema_export'
+        cps_to_ema_and_mesh(cps, file_prefix=file_name, path=path)
+        emas = pd.read_table(os.path.join(path, f"{file_name}-ema.txt"), sep=' ')
+    return emas
 
