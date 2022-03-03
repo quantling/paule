@@ -1,16 +1,9 @@
 import pickle
 import os
 
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
 import torch
-from matplotlib import pyplot as plt
-import soundfile as sf
 
 from paule import paule, util, visualize
-
-tqdm.pandas()
 
 
 paule_model = paule.Paule(device=torch.device('cuda'))

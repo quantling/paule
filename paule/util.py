@@ -553,3 +553,76 @@ def cps_to_ema(cps):
         emas = pd.read_table(os.path.join(path, f"{file_name}-ema.txt"), sep=' ')
     return emas
 
+
+def seg_to_cps(seg_file):
+    """
+    Calls the vocal tract lab to read a segment file (seg_file) and returns the
+    unnormalised cps.
+
+    Parameters
+    ==========
+    seg_file : str
+        path to the segment file
+
+    Returns
+    =======
+    cps : np.array
+        two dimensional numpy array of the unnormalised control parameter
+        trajectories
+
+    """
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
+
+    failure = VTL.vtlInitialize(speaker_file_name)
+    if failure != 0:
+        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
+
+    segment_file_name = seg_file.encode()
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        gesture_file_name = os.path.join(tmpdirname, 'vtl_ges_file.txt').encode()
+        failure = VTL.vtlSegmentSequenceToGesturalScore(segment_file_name, gesture_file_name)
+        if failure != 0:
+            raise ValueError('Error in vtlSegmentSequenceToGesturalScore! Errorcode: %i' % failure)
+        VTL.vtlClose()
+        cps = ges_to_cps(gesture_file_name.decode())
+    return cps
+
+
+def ges_to_cps(ges_file):
+    """
+    Calls the vocal tract lab to read a gesture file (ges_file) and returns the
+    unnormalised cps.
+
+    Parameters
+    ==========
+    ges_file : str
+        path to the gesture file
+
+    Returns
+    =======
+    cps : np.array
+        two dimensional numpy array of the unnormalised control parameter
+        trajectories
+
+    """
+    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
+
+    failure = VTL.vtlInitialize(speaker_file_name)
+    if failure != 0:
+        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
+
+    gesture_file_name = ges_file.encode()
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        tract_sequence_file_name = os.path.join(tmpdirname, 'vtl_tract_seq.txt').encode()
+        failure = VTL.vtlGesturalScoreToTractSequence(gesture_file_name, tract_sequence_file_name)
+        if failure != 0:
+            raise ValueError('Error in vtlGesturalScoreToTractSequence! Errorcode: %i' % failure)
+
+        cps = read_cp(tract_sequence_file_name.decode())
+
+    VTL.vtlClose()
+
+    return cps
+
