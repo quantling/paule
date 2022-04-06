@@ -65,7 +65,7 @@ cp_theoretical_stds = np.array([5.00000e-01, 1.25000e+00, 2.50000e-01, 3.50000e+
 def librosa_melspec(wav, sample_rate):
     wav = librosa.resample(wav, orig_sr=sample_rate, target_sr=44100,
             res_type='kaiser_best', fix=True, scale=False)
-    melspec = librosa.feature.melspectrogram(wav, n_fft=1024, hop_length=220, n_mels=60, sr=44100, power=1.0, fmin=10, fmax=12000)
+    melspec = librosa.feature.melspectrogram(y=wav, n_fft=1024, hop_length=220, n_mels=60, sr=44100, power=1.0, fmin=10, fmax=12000)
     melspec_db = librosa.amplitude_to_db(melspec, ref=0.15)
     return np.array(melspec_db.T, order='C', dtype=np.float64)
 
