@@ -18,8 +18,19 @@ elif sys.platform.startswith('win32'):
 elif sys.platform.startswith('darwin'):
     _FILE_ENDING = '.dylib'
 
+# initialize vtl
 VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/libVocalTractLabApi' + _FILE_ENDING))
-del _FILE_ENDING
+SPEAKER_FILE_NAME = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
+FAILURE = VTL.vtlInitialize(SPEAKER_FILE_NAME)
+if FAILURE != 0:
+    raise ValueError('Error in vtlInitialize! Errorcode: %i' % FAILURE)
+del SPEAKER_FILE_NAME, FAILURE, _FILE_ENDING
+
+# get version / compile date
+VERSION = ctypes.c_char_p(b' ' * 64)
+VTL.vtlGetVersion(VERSION)
+print('Version of the VocalTractLab library: "%s"' % VERSION.value.decode())
+del VERSION
 
 
 # This should be done on all cp_deltas
@@ -135,13 +146,6 @@ def speak(cp_param):
         110 / 44100``
 
     """
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     # get some constants
     audio_sampling_rate = ctypes.c_int(0)
     number_tube_sections = ctypes.c_int(0)
@@ -197,8 +201,6 @@ def speak(cp_param):
                     0)
     if failure != 0:
         raise ValueError('Error in vtlSynthBlock! Errorcode: %i' % failure)
-
-    VTL.vtlClose()
 
     return (np.array(audio[:-2000]), 44100)
 
@@ -316,13 +318,6 @@ def export_svgs(cps, path='svgs/', hop_length=5):
 
     """
     n_tract_parameter = 19
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     for ii in range(cps.shape[0] // hop_length):
         jj = ii * hop_length
 
@@ -336,8 +331,6 @@ def export_svgs(cps, path='svgs/', hop_length=5):
             os.mkdir(path)
 
         VTL.vtlExportTractSvg(tract_params, file_name)
-
-    VTL.vtlClose()
 
 
 class RMSELoss(torch.nn.Module):
@@ -465,13 +458,6 @@ def cps_to_ema_and_mesh(cps, file_prefix, *, path=""):
         all output is writen to files.
 
     """
-    # initialize vtl
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     # get some constants
     audio_sampling_rate = ctypes.c_int(0)
     number_tube_sections = ctypes.c_int(0)
@@ -527,8 +513,6 @@ def cps_to_ema_and_mesh(cps, file_prefix, *, path=""):
     if failure != 0:
         raise ValueError('Error in vtlTractSequenceToEmaAndMesh! Errorcode: %i' % failure)
 
-    VTL.vtlClose()
-
 
 def cps_to_ema(cps):
     """
@@ -573,12 +557,6 @@ def seg_to_cps(seg_file):
         trajectories
 
     """
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     segment_file_name = seg_file.encode()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -586,7 +564,6 @@ def seg_to_cps(seg_file):
         failure = VTL.vtlSegmentSequenceToGesturalScore(segment_file_name, gesture_file_name)
         if failure != 0:
             raise ValueError('Error in vtlSegmentSequenceToGesturalScore! Errorcode: %i' % failure)
-        VTL.vtlClose()
         cps = ges_to_cps(gesture_file_name.decode())
     return cps
 
@@ -608,12 +585,6 @@ def ges_to_cps(ges_file):
         trajectories
 
     """
-    speaker_file_name = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
-
-    failure = VTL.vtlInitialize(speaker_file_name)
-    if failure != 0:
-        raise ValueError('Error in vtlInitialize! Errorcode: %i' % failure)
-
     gesture_file_name = ges_file.encode()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -623,8 +594,5 @@ def ges_to_cps(ges_file):
             raise ValueError('Error in vtlGesturalScoreToTractSequence! Errorcode: %i' % failure)
 
         cps = read_cp(tract_sequence_file_name.decode())
-
-    VTL.vtlClose()
-
     return cps
 

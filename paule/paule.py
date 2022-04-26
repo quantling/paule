@@ -592,18 +592,18 @@ class Paule():
                             print("Produced Semvec Loss: ", float(prod_semvec_loss.item()))
                             print("")
                         
-                        best_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
-                        best_synthesis_semantic = BestSynthesisSemantic(float(prod_semvec_loss.item()), xx_new_numpy, sig, prod_semvec[-1, :].detach().cpu().numpy().copy(),pred_semvec[-1, :].detach().cpu().numpy().copy())
+                        new_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(), pred_mel[-1, :, :].detach().cpu().numpy().copy())
+                        new_synthesis_semantic = BestSynthesisSemantic(float(prod_semvec_loss.item()), xx_new_numpy, sig, prod_semvec[-1, :].detach().cpu().numpy().copy(), pred_semvec[-1, :].detach().cpu().numpy().copy())
 
-                        if self.best_synthesis_acoustic.mel_loss > best_synthesis_acoustic.mel_loss:
-                            self.best_synthesis_acoustic = best_synthesis_acoustic
-                        if self.best_synthesis_semantic.semvec_loss > best_synthesis_semantic.semvec_loss:
-                            self.best_synthesis_semantic = best_synthesis_semantic
+                        if self.best_synthesis_acoustic.mel_loss > new_synthesis_acoustic.mel_loss:
+                            self.best_synthesis_acoustic = new_synthesis_acoustic
+                        if self.best_synthesis_semantic.semvec_loss > new_synthesis_semantic.semvec_loss:
+                            self.best_synthesis_semantic = new_synthesis_semantic
 
                     else:
-                        best_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
-                        if self.best_synthesis_acoustic.mel_loss > best_synthesis_acoustic.mel_loss:
-                            self.best_synthesis_acoustic = best_synthesis_acoustic
+                        new_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
+                        if self.best_synthesis_acoustic.mel_loss > new_synthesis_acoustic.mel_loss:
+                            self.best_synthesis_acoustic = new_synthesis_acoustic
                         
                         if verbose:
                             print("")
