@@ -233,15 +233,16 @@ class Paule():
                      target_semvec=None,
                      target_seq_length=None,
                      initial_cp=None,
+                     past_cp=None,
                      initialize_from="acoustic",
                      objective="acoustic",
                      n_outer=5, n_inner=24,
                      continue_learning=True,
                      continue_learning_inv=False,
                      add_training_data=False,
+                     n_batches=3, batch_size=8, n_epochs=10,
                      log_ii=1,
                      log_semantics=True,
-                     n_batches=3, batch_size=8, n_epochs=10,
                      log_gradients=False,
                      log_signals = False,
                      log_cps = False,
@@ -262,6 +263,9 @@ class Paule():
         target_semvec : torch.tensor
         target_seq_length : int (None)
         initial_cp : torch.tensor
+        past_cp : torch.tensor
+            cp that are already executed, but should be conditioned on they
+            will be concatenated to the beginning of the initial_cp
         initialize_from : {'semvec', 'acoustic', None}
             can be None, if initial_cp are given
         objective : {'acoustic_semvec', 'acoustic', 'semvec'}
@@ -373,8 +377,15 @@ class Paule():
             assert initial_cp.shape[0] == target_mel.shape[
                 1] * 2, f"initial_cp {initial_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}"
 
+        if not past_cp is None and past_cp.shape[0] % 2 != 0:
+            raise ValueError("past_cp have to be None or the sequence length has to be an even number")
         # 1.3 create initial xx
         # initial_cp = np.zeros_like(initial_cp)
+        if not past_cp is None:
+            initial_cp = np.concatenate((past_cp, initial_cp), axis=0)
+            # store past_cp as torch tensor to reset after each planning iteration
+            past_cp_torch = torch.from_numpy(past_cp)
+            past_cp_torch = past_cp_torch.to(self.device)
         xx_new = initial_cp.copy()
         xx_new.shape = (1, xx_new.shape[0], xx_new.shape[1])
         xx_new = torch.from_numpy(xx_new)
@@ -433,13 +444,19 @@ class Paule():
             initial_pred_mel = self.pred_model(xx_new)
             initial_pred_semvec = self.embedder(initial_pred_mel, (torch.tensor(initial_pred_mel.shape[1]),))
 
-        initial_sig, initial_sr = speak(inv_normalize_cp(initial_cp))
+        xx_new_numpy = xx_new[-1, :, :].detach().cpu().numpy().copy()
+        initial_sig, initial_sr = speak(inv_normalize_cp(xx_new_numpy))
         
         initial_prod_mel = librosa_melspec(initial_sig, initial_sr)
         initial_prod_mel = normalize_mel_librosa(initial_prod_mel)
         initial_prod_mel.shape = initial_pred_mel.shape
         initial_prod_mel = torch.from_numpy(initial_prod_mel)
         initial_prod_mel = initial_prod_mel.to(self.device)
+
+        # if past_cp prepend the first past_cp / 2 steps to target_mel
+        if not past_cp is None:
+            target_mel = torch.cat((initial_prod_mel[:, 0:(past_cp.shape[0] // 2), :], target_mel), dim=1)
+            target_mel = target_mel.to(self.device)
         
         with torch.no_grad():
             initial_prod_semvec = self.embedder(initial_prod_mel, (torch.tensor(initial_prod_mel.shape[1]),))
@@ -617,6 +634,9 @@ class Paule():
                     # xx_new.data = (xx_new.data - learning_rate * xx_new.grad)
                     # xx_new.data = (xx_new.data - learning_rate * xx_new.grad).clamp(-1,1)
                     xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
+                    if not past_cp is None:
+                        xx_new.data[:, 0:past_cp_torch.shape[0], :] = past_cp_torch
+
 
                 #xx_new.grad.zero_()
 
