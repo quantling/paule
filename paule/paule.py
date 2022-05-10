@@ -223,8 +223,10 @@ class Paule():
             self.inv_optimizer = torch.optim.Adam(self.inv_model.parameters(), lr=0.001)
         self.inv_criterion = cp_trajacetory_loss
 
-        self.best_synthesis_acoustic = None  
-        self.best_synthesis_semantic = None    
+        self.best_synthesis_acoustic = None
+        self.best_synthesis_semantic = None
+
+
 
 
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=0.001,
@@ -437,7 +439,7 @@ class Paule():
         pred_mel_steps = list()
         prod_mel_steps = list()
         model_loss = list()
-        optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning) 
+        optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning)
 
         # initial results
         with torch.no_grad():
@@ -446,7 +448,7 @@ class Paule():
 
         xx_new_numpy = xx_new[-1, :, :].detach().cpu().numpy().copy()
         initial_sig, initial_sr = speak(inv_normalize_cp(xx_new_numpy))
-        
+
         initial_prod_mel = librosa_melspec(initial_sig, initial_sr)
         initial_prod_mel = normalize_mel_librosa(initial_prod_mel)
         initial_prod_mel.shape = initial_pred_mel.shape
@@ -457,17 +459,17 @@ class Paule():
         if not past_cp is None:
             target_mel = torch.cat((initial_prod_mel[:, 0:(past_cp.shape[0] // 2), :], target_mel), dim=1)
             target_mel = target_mel.to(self.device)
-        
+
         with torch.no_grad():
             initial_prod_semvec = self.embedder(initial_prod_mel, (torch.tensor(initial_prod_mel.shape[1]),))
-        
+
         initial_prod_mel = initial_prod_mel[-1, :, :].detach().cpu().numpy().copy()
         initial_pred_mel = initial_pred_mel[-1, :, :].detach().cpu().numpy().copy()
         initial_prod_semvec = initial_prod_semvec[-1, :].detach().cpu().numpy().copy()
         initial_pred_semvec = initial_pred_semvec[-1, :].detach().cpu().numpy().copy()
 
-        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)  
-        self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)    
+        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)
+        self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)
 
         # continue learning
         start_time = time.time()
@@ -504,7 +506,7 @@ class Paule():
                             pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
                             semvec_loss = float(rmse_loss(pred_semvec, target_semvec).item())
                             pred_semvec_loss_steps.append(semvec_loss)
-                            
+
 
                     if verbose:
                         print("Iteration %d" % ii)
@@ -608,7 +610,7 @@ class Paule():
                         if verbose:
                             print("Produced Semvec Loss: ", float(prod_semvec_loss.item()))
                             print("")
-                        
+
                         new_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(), pred_mel[-1, :, :].detach().cpu().numpy().copy())
                         new_synthesis_semantic = BestSynthesisSemantic(float(prod_semvec_loss.item()), xx_new_numpy, sig, prod_semvec[-1, :].detach().cpu().numpy().copy(), pred_semvec[-1, :].detach().cpu().numpy().copy())
 
@@ -621,7 +623,7 @@ class Paule():
                         new_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(),pred_mel[-1, :, :].detach().cpu().numpy().copy())
                         if self.best_synthesis_acoustic.mel_loss > new_synthesis_acoustic.mel_loss:
                             self.best_synthesis_acoustic = new_synthesis_acoustic
-                        
+
                         if verbose:
                             print("")
 
