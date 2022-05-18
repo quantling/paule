@@ -303,40 +303,40 @@ def speak_and_extract_tube_information(cp_param):
     audio = [(ctypes.c_double * int(frame_steps))() for _ in range(number_frames - 1)]
 
     # init the arrays
-    tract_params = [(ctypes.c_double * (number_vocal_tract_parameters.value))() for _ in range(number_frames - 1)]
-    glottis_params = [(ctypes.c_double * (number_glottis_parameters.value))() for _ in range(number_frames - 1)]
+    tract_params = [(ctypes.c_double * (number_vocal_tract_parameters.value))() for _ in range(number_frames)]
+    glottis_params = [(ctypes.c_double * (number_glottis_parameters.value))() for _ in range(number_frames)]
 
     # fill in data
     tmp = np.ascontiguousarray(cp_param[:, 0:19])
-    for i in range(number_frames - 1):
+    for i in range(number_frames):
         tract_params[i][:] = tmp[i]
     del tmp
 
     tmp = np.ascontiguousarray(cp_param[:, 19:30])
-    for i in range(number_frames - 1):
+    for i in range(number_frames):
         glottis_params[i][:] = tmp[i]
     del tmp
 
     # tube sections
-    tube_length_cm = [(ctypes.c_double * 40)() for _ in range(number_frames - 1)]
-    tube_area_cm2 = [(ctypes.c_double * 40)() for _ in range(number_frames - 1)]
-    tube_articulator = [(ctypes.c_int * 40)() for _ in range(number_frames - 1)]
-    incisor_pos_cm = [ctypes.c_double(0) for _ in range(number_frames - 1)]
-    tongue_tip_side_elevation = [ctypes.c_double(0) for _ in range(number_frames - 1)]
-    velum_opening_cm2 = [ctypes.c_double(0) for _ in range(number_frames - 1)]
+    tube_length_cm = [(ctypes.c_double * 40)() for _ in range(number_frames)]
+    tube_area_cm2 = [(ctypes.c_double * 40)() for _ in range(number_frames)]
+    tube_articulator = [(ctypes.c_int * 40)() for _ in range(number_frames)]
+    incisor_pos_cm = [ctypes.c_double(0) for _ in range(number_frames)]
+    tongue_tip_side_elevation = [ctypes.c_double(0) for _ in range(number_frames)]
+    velum_opening_cm2 = [ctypes.c_double(0) for _ in range(number_frames)]
 
     # Reset time-domain synthesis
     failure = VTL.vtlSynthesisReset()
     if failure != 0:
         raise ValueError(f'Error in vtlSynthesisReset! Errorcode: {failure}')
 
-    for i in range(number_frames - 1):
+    for i in range(number_frames):
         if i == 0:
             failure = VTL.vtlSynthesisAddTract(0, ctypes.byref(audio[0]),
                                                ctypes.byref(tract_params[i]),
                                                ctypes.byref(glottis_params[i]))
         else:
-            failure = VTL.vtlSynthesisAddTract(frame_steps, ctypes.byref(audio[i]),
+            failure = VTL.vtlSynthesisAddTract(frame_steps, ctypes.byref(audio[i-1]),
                                                ctypes.byref(tract_params[i]),
 
                                                ctypes.byref(glottis_params[i]))
