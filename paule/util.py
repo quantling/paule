@@ -429,6 +429,11 @@ def pad_same_to_even_seq_length(array):
     else:
         return array
 
+def half_seq_by_average_pooling(seq):
+    if len(seq) % 2:
+        seq = pad_same_to_even_seq_length(seq)
+    half_seq = (seq[::2,:] + seq[1::2,:])/2
+    return half_seq
 
 def export_svgs(cps, path='svgs/', hop_length=5):
     """
