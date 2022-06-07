@@ -46,7 +46,7 @@ from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajacetory_loss, mel_to_sig,
         pad_batch_online)
 from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
-        MelEmbeddingModel_MelSmoothResidualUpsampling, MelEmbeddingModel, Generator)
+        MelEmbeddingModel_MelSmoothResidualUpsampling, EmbeddingModel, Generator)
 from . import visualize
 
 
@@ -176,7 +176,7 @@ class Paule():
         if embedder:
             self.embedder = embedder
         else:
-            self.embedder = MelEmbeddingModel(num_lstm_layers=2, hidden_size=720).double()
+            self.embedder = EmbeddingModel(num_lstm_layers=2, hidden_size=720).double()
             self.embedder.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/embedder/embed_model_common_voice_syn_rec_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                 map_location=self.device))
