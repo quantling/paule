@@ -323,19 +323,23 @@ class ForwardModel(torch.nn.Module):
     def __init__(self, input_size=30,
                  output_size=60,
                  hidden_size=180,
-                 num_lstm_layers=4):
+                 num_lstm_layers=4,
+                 apply_half_sequence=True):
         super().__init__()
 
-        self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+        self.apply_half_sequence = apply_half_sequence
+        if self.apply_half_sequence:
+            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
         self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers=num_lstm_layers, batch_first=True)
         self.post_linear = torch.nn.Linear(hidden_size, output_size)
 
     def forward(self, x, *args):
         output, _ = self.lstm(x)
         output = self.post_linear(output)
-        output = output.permute(0, 2, 1)
-        output = self.half_sequence(output)
-        output = output.permute(0, 2, 1)
+        if self.apply_half_sequence:
+            output = output.permute(0, 2, 1)
+            output = self.half_sequence(output)
+            output = output.permute(0, 2, 1)
 
         return output
 
@@ -394,9 +398,9 @@ class MelEmbeddingModel_MelSmoothResidualUpsampling(torch.nn.Module):
 
 
 
-class MelEmbeddingModel(torch.nn.Module):
+class EmbeddingModel(torch.nn.Module):
     """
-        EmbedderModel
+        Embedder
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
         - stacked LSTM-Cells
         - Post upsammpling layer
