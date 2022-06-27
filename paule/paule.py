@@ -166,7 +166,7 @@ class Paule():
         if inv_model:
             self.inv_model = inv_model
         else:
-            self.inv_model = InverseModel_MelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).double()
+            self.inv_model = InverseModelMelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).double()
             self.inv_model.load_state_dict(
                 torch.load(os.path.join(DIR, "pretrained_models/inverse/inv_model_common_voice_3_1_720_5_lr_0001_50_00001_100.pt"),
                            map_location=self.device))

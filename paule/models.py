@@ -162,7 +162,7 @@ class MelChannelConv1D(torch.nn.Module):
 ################################################# Inverse Models  ######################################################
 ########################################################################################################################
 
-class InverseModel_MelTimeSmoothResidual(torch.nn.Module):
+class InverseModelMelTimeSmoothResidual(torch.nn.Module):
     """
         InverseModel
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
@@ -241,7 +241,7 @@ class InverseModel_MelTimeSmoothResidual(torch.nn.Module):
 ################################################# Forward Models  ######################################################
 ########################################################################################################################
 
-class ForwardModel_MelTimeSmoothResidual(torch.nn.Module):
+class ForwardModelMelTimeSmoothResidual(torch.nn.Module):
     """
         ForwardModel
         - Initial Conv1d layers for Convolution over time stacked with residual connections
@@ -347,7 +347,7 @@ class ForwardModel(torch.nn.Module):
 ############################################### Embbedder Models  ######################################################
 ########################################################################################################################
 
-class MelEmbeddingModel_MelSmoothResidualUpsampling(torch.nn.Module):
+class MelEmbeddingModelMelSmoothResidualUpsampling(torch.nn.Module):
     """
         EmbedderModel
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
@@ -440,7 +440,7 @@ class EmbeddingModel(torch.nn.Module):
 ################################################# Baseline Models  #####################################################
 ########################################################################################################################
 
-class Linear_Model(torch.nn.Module):
+class LinearModel(torch.nn.Module):
     def __init__(self,
                  input_channel = 30,
                  output_channel = 60,
@@ -450,8 +450,7 @@ class Linear_Model(torch.nn.Module):
         super().__init__()
         self.on_full_sequence = on_full_sequence
         self.add_vel_and_acc = add_vel_and_acc
-        assert mode in ["pred",
-                          "inv"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
+        assert mode in ["pred", "inv", "embed"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
         self.mode = mode
         if self.on_full_sequence:
             if self.add_vel_and_acc:
@@ -461,9 +460,9 @@ class Linear_Model(torch.nn.Module):
                 self.input_channel = input_channel
             if self.mode == "pred":
                 self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
-            else:
+            elif self.mode == "inv":
                 self.double_sequence = double_sequence
-            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+
         else:
             self.input_channel = 2*input_channel
         self.output_channel = output_channel
@@ -476,18 +475,19 @@ class Linear_Model(torch.nn.Module):
                 x = self.add_vel_and_acc_info(x)
         else:
             x = x.reshape((x.shape[0],1,-1))
+
         output = self.linear(x)
         if self.on_full_sequence:
             if self.mode == "pred":
                 output = output.permute(0, 2, 1)
                 output = self.half_sequence(output)
                 output = output.permute(0, 2, 1)
-            else:
+            elif self.mode == "inv":
                 output = self.double_sequence(output)
         return output
 
 
-class Non_Linear_Model(torch.nn.Module):
+class NonLinearModel(torch.nn.Module):
     def __init__(self,
                  input_channel=30,
                  output_channel=60,
@@ -499,8 +499,7 @@ class Non_Linear_Model(torch.nn.Module):
         super().__init__()
         self.on_full_sequence = on_full_sequence
         self.add_vel_and_acc = add_vel_and_acc
-        assert mode in ["pred",
-                          "inv"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
+        assert mode in ["pred", "inv", "embed"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
         self.mode = mode
         if self.on_full_sequence:
             if self.add_vel_and_acc:
@@ -510,7 +509,7 @@ class Non_Linear_Model(torch.nn.Module):
                 self.input_channel = input_channel
             if self.mode == "pred":
                 self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
-            else:
+            elif self.mode == "inv":
                 self.double_sequence = double_sequence
         else:
             self.input_channel = input_channel * 2
@@ -525,6 +524,8 @@ class Non_Linear_Model(torch.nn.Module):
         if self.on_full_sequence:
             if self.add_vel_and_acc:
                 x = self.add_vel_and_acc_info(x)
+            if self.mode == "embed":
+                x = torch.sum(x, axis=1)
         else:
             x = x.reshape((x.shape[0],1, -1))
         output = self.non_linear(x)
@@ -535,11 +536,9 @@ class Non_Linear_Model(torch.nn.Module):
                 output = output.permute(0, 2, 1)
                 output = self.half_sequence(output)
                 output = output.permute(0, 2, 1)
-            else:
+            elif self.mode == "inv":
                 output = self.double_sequence(output)
-
         return output
-
 
 ########################################################################################################################
 ############################################### Generative Models  #####################################################
@@ -641,7 +640,7 @@ class Generator(torch.nn.Module):
         return output
 
 
-class SemVec_To_Cp_Model(torch.nn.Module):
+class SemVecToCpModel(torch.nn.Module):
     def __init__(self,
                  input_size=300, #semantic vector dim
                  output_size=30,
@@ -688,7 +687,7 @@ class SemVec_To_Cp_Model(torch.nn.Module):
 
 
 
-class SemVec_To_Mel_Model(torch.nn.Module):
+class SemVecToMelModel(torch.nn.Module):
     def __init__(self,
                  input_size=300,  # semantic vector dim
                  output_size=60,
@@ -736,7 +735,7 @@ class SemVec_To_Mel_Model(torch.nn.Module):
         return output
 
 
-class LSTM_Critic(torch.nn.Module):
+class LSTMCritic(torch.nn.Module):
     def __init__(self, input_size=30,
                  embed_size = 300, 
                  output_size=1,
@@ -759,7 +758,7 @@ class LSTM_Critic(torch.nn.Module):
         return output
 
 
-class LSTM_Generator(torch.nn.Module):
+class LSTMGenerator(torch.nn.Module):
     def __init__(self,channel_noise = 60,
                  embed_size = 300,
                  output_size=30,
