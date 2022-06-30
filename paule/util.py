@@ -96,46 +96,8 @@ max_velum = 1
 min_velum = 0.0001 # -0.1
 
 # tube 0:40 tube area, 40:80 tube length, 80 Incisor position, 81 tongue tip, 82 velum opening
-
 tube_mins = np.concatenate([np.repeat(min_area,40), np.repeat(min_length,40), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
-
 tube_maxs = np.concatenate([np.repeat(max_area,40), np.repeat(max_length,40), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
-
-tube_means = np.array([0.51107918, 0.51107918, 0.51107918, 0.51107918, 0.51107918,
-       0.51107918, 0.51107918, 0.51107918, 0.51107918, 0.51107918,
-       0.51107918, 0.51107918, 0.51107918, 0.51107918, 0.51107918,
-       0.51107918, 0.52989443, 0.50829165, 0.48762811, 0.46790383,
-       0.4491188 , 0.43127302, 0.41436649, 0.39839921, 0.38337119,
-       0.36928241, 0.35613289, 0.34392262, 0.3326516 , 0.32231983,
-       0.31292732, 0.30447405, 0.29696004, 0.29038528, 0.28474977,
-       0.28005351, 0.27629651, 0.27347875, 0.27160025, 0.270661 ,
-       0.6478705 , 0.51010472, 0.40627209, 0.33994469, 0.91058364,
-       3.98259613, 4.7536238 , 4.07660891, 3.61081703, 3.61758324,
-       3.71152953, 3.6035348 , 3.54582258, 3.57429656, 3.81054212,
-       4.25515155, 3.30387897, 3.13244751, 2.60761436, 2.20497976,
-       1.84507265, 1.64714063, 1.67816856, 1.95165905, 2.40797671,
-       2.77854035, 2.99598658, 3.09521959, 3.03779325, 2.70885515,
-       2.41692082, 2.14468048, 1.89894426, 1.63640999, 1.34657981,
-       1.09134761, 0.95238847, 1.00744816, 1.54764756, 1.99619274,
-       16.143045353829983, 0.09358196255032616, 0.07230966134743695])
-
-tube_stds = np.array([0.03101215, 0.03101215, 0.03101215, 0.03101215, 0.03101215,
-       0.03101215, 0.03101215, 0.03101215, 0.03101215, 0.03101215,
-       0.03101215, 0.03101215, 0.03101215, 0.03101215, 0.03101215,
-       0.03101215, 0.02096717, 0.02011237, 0.01929475, 0.01851429,
-       0.01777099, 0.01706486, 0.01639589, 0.01576409, 0.01516945,
-       0.01461198, 0.01409167, 0.01360853, 0.01316255, 0.01275374,
-       0.01238209, 0.0120476 , 0.01175028, 0.01149013, 0.01126714,
-       0.01108132, 0.01093266, 0.01082116, 0.01074683, 0.01070967,
-       0.0067979 , 0.01414335, 0.01495104, 0.00807165, 0.54184212,
-       1.14316659, 0.70639887, 1.05098317, 1.30188994, 1.42186578,
-       1.51998806, 1.56471995, 1.58034738, 1.57833165, 1.5563959 ,
-       1.55326595, 1.41969472, 1.32732186, 1.13661063, 1.01861257,
-       0.96524479, 0.97136899, 0.98610866, 1.05948707, 1.1697271 ,
-       1.27452624, 1.32548959, 1.37962082, 1.70620311, 1.82819275,
-       1.81461112, 1.69829095, 1.49265992, 1.22332888, 1.00125497,
-       0.75530653, 0.40730255, 0.34716703, 0.62062204, 0.78482841,
-       0.4709032351475979, 0.27830761004693094, 0.21290066544896447])
 
 def librosa_melspec(wav, sample_rate):
     wav = librosa.resample(wav, orig_sr=sample_rate, target_sr=44100,
@@ -153,15 +115,9 @@ def inv_normalize_cp(norm_cp):
     return cp_theoretical_stds * norm_cp + cp_theoretical_means
 
 def normalize_tube(tube):
-    return (tube - tube_means) / tube_stds
-
-def inv_normalize_tube(norm_tube):
-    return tube_stds * norm_tube + tube_means
-
-def normalize_tube_min_max(tube):
     return (tube - tube_mins)/(tube_maxs - tube_mins)
 
-def inv_normalize_tube_min_max(norm_tube):
+def inv_normalize_tube(norm_tube):
     return norm_tube * (tube_maxs - tube_mins) + tube_mins
 
 # -83.52182518111363
@@ -328,11 +284,14 @@ def mel_to_sig(mel, mel_min=0.0):
     sig = np.concatenate((np.zeros(55), sig, np.zeros(55)))
     return (sig, 44100)
 
-def mel_to_tensor(mel):
-    torch_mel = mel.copy()
-    torch_mel.shape = (1,) + torch_mel.shape
-    torch_mel = torch.from_numpy(torch_mel).detach().clone()
-    return torch_mel
+def array_to_tensor(array):
+    """
+    Creates a Tensor with batch dim = 1
+    """
+    torch_tensor = array.copy()
+    torch_tensor.shape = (1,) + torch_tensor.shape
+    torch_tensor = torch.from_numpy(torch_tensor).detach().clone()
+    return torch_tensor
 
 def speak_and_extract_tube_information(cp_param):
     """
