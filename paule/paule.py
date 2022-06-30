@@ -43,10 +43,10 @@ random.seed(20200905)
 tqdm.pandas()
 
 from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
-        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajacetory_loss, mel_to_sig,
+        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajectory_loss, mel_to_sig,
         pad_batch_online)
-from .models import (ForwardModel, InverseModel_MelTimeSmoothResidual,
-        MelEmbeddingModel_MelSmoothResidualUpsampling, EmbeddingModel, Generator)
+from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
+        MelEmbeddingModelMelSmoothResidualUpsampling, EmbeddingModel, Generator)
 from . import visualize
 
 
