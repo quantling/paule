@@ -80,24 +80,32 @@ ARTICULATOR = {0: 'vocal folds',
                5: 'num articulators',
                }
 
-min_area = 0.0001
-max_area = 14.799800847848353
+min_area = 0  # 0.0001
+max_area = 15 # 0.0001
 
 min_length = 0.23962031463970312
 max_length = 0.6217119410833707
 
-max_incisor = 17.752924117638145 #18
-min_incisor = 14.832484114030665 #14
+max_incisor = 18 # 17.752924117638145
+min_incisor = 14 # 14.832484114030665
 
 max_tongue = 1
 min_tongue = -1
 
 max_velum = 1
-min_velum = 0.0001 # -0.1
+min_velum = 0 # 0.0001
 
 # tube 0:40 tube area, 40:80 tube length, 80 Incisor position, 81 tongue tip, 82 velum opening
-tube_mins = np.concatenate([np.repeat(min_area,40), np.repeat(min_length,40), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
-tube_maxs = np.concatenate([np.repeat(max_area,40), np.repeat(max_length,40), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+#tube_mins = np.concatenate([np.repeat(min_area,40), np.repeat(min_length,40), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
+#tube_maxs = np.concatenate([np.repeat(max_area,40), np.repeat(max_length,40), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+
+# tube sections area 0:6, 7 Incisor position, 8 tongue tip, 9 velum opening
+tube_mins = np.concatenate([np.repeat(min_area,7), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
+tube_maxs = np.concatenate([np.repeat(max_area,7), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+
+tube_theoretical_means = np.mean(np.stack([tube_mins,tube_maxs]),axis=0)
+tube_theoretical_stds = np.std(np.stack([tube_mins,tube_maxs]),axis=0)
+
 
 def librosa_melspec(wav, sample_rate):
     wav = librosa.resample(wav, orig_sr=sample_rate, target_sr=44100,
@@ -114,11 +122,17 @@ def normalize_cp(cp):
 def inv_normalize_cp(norm_cp):
     return cp_theoretical_stds * norm_cp + cp_theoretical_means
 
+#def normalize_tube(tube):
+#    return (tube - tube_mins)/(tube_maxs - tube_mins)
+
+#def inv_normalize_tube(norm_tube):
+#    return norm_tube * (tube_maxs - tube_mins) + tube_mins
+
 def normalize_tube(tube):
-    return (tube - tube_mins)/(tube_maxs - tube_mins)
+    return (tube - tube_theoretical_means)/tube_theoretical_stds
 
 def inv_normalize_tube(norm_tube):
-    return norm_tube * (tube_maxs - tube_mins) + tube_mins
+    return norm_tube * tube_theoretical_stds + tube_theoretical_means
 
 # -83.52182518111363
 mel_mean_librosa = librosa_melspec(np.zeros(5000), 44100)[0, 0]
@@ -750,3 +764,23 @@ def ges_to_cps(ges_file):
         cps = read_cp(tract_sequence_file_name.decode())
     return cps
 
+def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside =7, calculate="min"):
+    length_per_time = np.cumsum(tube_length,axis=1)
+    section_area_per_time = []
+    for t, l in enumerate(length_per_time):
+        steps = [length_per_time[t][-1]-i*1 for i in range(cm_inside+1)][::-1]
+        section_area = []
+        for i,step in enumerate(steps[:-1]):
+            area = tube_area[t,np.where(np.logical_and(l>=step, l<=steps[i+1]))][0]
+            if calculate == "raw":
+                section_area += [area]
+            elif calculate == "mean":
+                section_area += [np.mean(area)]
+            elif calculate == "binary":
+                section_area += [bool(np.sum(area <= 0.001))]
+            elif calculate == "min":
+                section_area += [np.min(area)]
+            else:
+                raise Exception(f"calculate must be one of ['raw', 'mean', 'binary', 'min']")
+        section_area_per_time += [section_area]
+    return np.asarray(section_area_per_time)
