@@ -227,6 +227,12 @@ class Paule():
         self.best_synthesis_semantic = None
 
 
+    def plan_iterative(self, *,
+                       target_acoustic=None,
+                       target_semvecs=None,
+                       target_seq_lengths=None,
+                       overlap=8, **kwargs):
+        pass
 
 
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=0.001,

@@ -350,7 +350,9 @@ def get_vel_acc_jerk(trajectory, *, lag=1):
     jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
     return velocity, acc, jerk
 
+
 rmse_loss = RMSELoss(eps=0)    
+
 
 def cp_trajacetory_loss(Y_hat, tgts):
     """
