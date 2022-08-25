@@ -162,7 +162,7 @@ class MelChannelConv1D(torch.nn.Module):
 ################################################# Inverse Models  ######################################################
 ########################################################################################################################
 
-class InverseModel_MelTimeSmoothResidual(torch.nn.Module):
+class InverseModelMelTimeSmoothResidual(torch.nn.Module):
     """
         InverseModel
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
@@ -241,7 +241,7 @@ class InverseModel_MelTimeSmoothResidual(torch.nn.Module):
 ################################################# Forward Models  ######################################################
 ########################################################################################################################
 
-class ForwardModel_MelTimeSmoothResidual(torch.nn.Module):
+class ForwardModelMelTimeSmoothResidual(torch.nn.Module):
     """
         ForwardModel
         - Initial Conv1d layers for Convolution over time stacked with residual connections
@@ -323,19 +323,23 @@ class ForwardModel(torch.nn.Module):
     def __init__(self, input_size=30,
                  output_size=60,
                  hidden_size=180,
-                 num_lstm_layers=4):
+                 num_lstm_layers=4,
+                 apply_half_sequence=True):
         super().__init__()
 
-        self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+        self.apply_half_sequence = apply_half_sequence
+        if self.apply_half_sequence:
+            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
         self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers=num_lstm_layers, batch_first=True)
         self.post_linear = torch.nn.Linear(hidden_size, output_size)
 
     def forward(self, x, *args):
         output, _ = self.lstm(x)
         output = self.post_linear(output)
-        output = output.permute(0, 2, 1)
-        output = self.half_sequence(output)
-        output = output.permute(0, 2, 1)
+        if self.apply_half_sequence:
+            output = output.permute(0, 2, 1)
+            output = self.half_sequence(output)
+            output = output.permute(0, 2, 1)
 
         return output
 
@@ -343,7 +347,7 @@ class ForwardModel(torch.nn.Module):
 ############################################### Embbedder Models  ######################################################
 ########################################################################################################################
 
-class MelEmbeddingModel_MelSmoothResidualUpsampling(torch.nn.Module):
+class MelEmbeddingModelMelSmoothResidualUpsampling(torch.nn.Module):
     """
         EmbedderModel
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
@@ -394,9 +398,9 @@ class MelEmbeddingModel_MelSmoothResidualUpsampling(torch.nn.Module):
 
 
 
-class MelEmbeddingModel(torch.nn.Module):
+class EmbeddingModel(torch.nn.Module):
     """
-        EmbedderModel
+        Embedder
         - Initial Conv1d Layers for Convolution over time and neighbouring Mel Channels with residual connections
         - stacked LSTM-Cells
         - Post upsammpling layer
@@ -436,17 +440,29 @@ class MelEmbeddingModel(torch.nn.Module):
 ################################################# Baseline Models  #####################################################
 ########################################################################################################################
 
-class Linear_Model(torch.nn.Module):
+class LinearModel(torch.nn.Module):
     def __init__(self,
                  input_channel = 30,
                  output_channel = 60,
-                 on_full_sequence = False):
+                 mode = "inv",
+                 on_full_sequence = False,
+                 add_vel_and_acc=True):
         super().__init__()
         self.on_full_sequence = on_full_sequence
+        self.add_vel_and_acc = add_vel_and_acc
+        assert mode in ["pred", "inv", "embed"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
+        self.mode = mode
         if self.on_full_sequence:
-            self.input_channel = 3 * input_channel
-            self.add_vel_and_acc_info = add_vel_and_acc_info
-            self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+            if self.add_vel_and_acc:
+                self.input_channel = 3 * input_channel
+                self.add_vel_and_acc_info = add_vel_and_acc_info
+            else:
+                self.input_channel = input_channel
+            if self.mode == "pred":
+                self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
+            elif self.mode == "inv":
+                self.double_sequence = double_sequence
+
         else:
             self.input_channel = 2*input_channel
         self.output_channel = output_channel
@@ -455,36 +471,45 @@ class Linear_Model(torch.nn.Module):
 
     def forward(self, x, *args):
         if self.on_full_sequence:
-            x = self.add_vel_and_acc_info(x)
+            if self.add_vel_and_acc:
+                x = self.add_vel_and_acc_info(x)
         else:
             x = x.reshape((x.shape[0],1,-1))
+
         output = self.linear(x)
         if self.on_full_sequence:
-            output = output.permute(0, 2, 1)
-            output = self.half_sequence(output)
-            output = output.permute(0, 2, 1)
+            if self.mode == "pred":
+                output = output.permute(0, 2, 1)
+                output = self.half_sequence(output)
+                output = output.permute(0, 2, 1)
+            elif self.mode == "inv":
+                output = self.double_sequence(output)
         return output
 
 
-class Non_Linear_Model(torch.nn.Module):
+class NonLinearModel(torch.nn.Module):
     def __init__(self,
                  input_channel=30,
                  output_channel=60,
                  hidden_units=8192,
                  activation_function=torch.nn.LeakyReLU(),
                  mode = "pred",
-                 on_full_sequence=False):
+                 on_full_sequence=False,
+                 add_vel_and_acc=True):
         super().__init__()
         self.on_full_sequence = on_full_sequence
-        assert mode in ["pred",
-                          "inv"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
+        self.add_vel_and_acc = add_vel_and_acc
+        assert mode in ["pred", "inv", "embed"], "if you want to train a predictive model please set mode to 'pred', for a inverse model set mode to 'inv'!"
         self.mode = mode
         if self.on_full_sequence:
-            self.input_channel = input_channel * 3
-            self.add_vel_and_acc_info = add_vel_and_acc_info
+            if self.add_vel_and_acc:
+                self.input_channel = input_channel * 3
+                self.add_vel_and_acc_info = add_vel_and_acc_info
+            else:
+                self.input_channel = input_channel
             if self.mode == "pred":
                 self.half_sequence = torch.nn.AvgPool1d(2, stride=2)
-            else:
+            elif self.mode == "inv":
                 self.double_sequence = double_sequence
         else:
             self.input_channel = input_channel * 2
@@ -497,7 +522,10 @@ class Non_Linear_Model(torch.nn.Module):
 
     def forward(self, x, *args):
         if self.on_full_sequence:
-            x = self.add_vel_and_acc_info(x)
+            if self.add_vel_and_acc:
+                x = self.add_vel_and_acc_info(x)
+            if self.mode == "embed":
+                x = torch.sum(x, axis=1)
         else:
             x = x.reshape((x.shape[0],1, -1))
         output = self.non_linear(x)
@@ -508,11 +536,9 @@ class Non_Linear_Model(torch.nn.Module):
                 output = output.permute(0, 2, 1)
                 output = self.half_sequence(output)
                 output = output.permute(0, 2, 1)
-            else:
+            elif self.mode == "inv":
                 output = self.double_sequence(output)
-
         return output
-
 
 ########################################################################################################################
 ############################################### Generative Models  #####################################################
@@ -614,7 +640,7 @@ class Generator(torch.nn.Module):
         return output
 
 
-class SemVec_To_Cp_Model(torch.nn.Module):
+class SemVecToCpModel(torch.nn.Module):
     def __init__(self,
                  input_size=300, #semantic vector dim
                  output_size=30,
@@ -661,7 +687,7 @@ class SemVec_To_Cp_Model(torch.nn.Module):
 
 
 
-class SemVec_To_Mel_Model(torch.nn.Module):
+class SemVecToMelModel(torch.nn.Module):
     def __init__(self,
                  input_size=300,  # semantic vector dim
                  output_size=60,
@@ -706,4 +732,57 @@ class SemVec_To_Mel_Model(torch.nn.Module):
             output = self.resid_weighting(output)
 
         output = self.output_activation(output.permute(0, 2, 1))
+        return output
+
+
+class LSTMCritic(torch.nn.Module):
+    def __init__(self, input_size=30,
+                 embed_size = 300, 
+                 output_size=1,
+                 hidden_size=200,
+                 num_lstm_layers=2,
+                 dropout=0.5):
+        super().__init__()
+        self.lstm = torch.nn.LSTM(input_size + embed_size, hidden_size, num_layers=num_lstm_layers, batch_first = True, dropout=dropout)
+        self.fully_connected = torch.nn.Linear(hidden_size,output_size)
+
+    def forward(self, x, lens, vector, *args):
+        
+        x = torch.cat([x, vector.unsqueeze(1).repeat(1, x.shape[1], 1)],dim=2)
+        output, (h_n, _) = self.lstm(x)
+        output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
+        output = self.fully_connected(output)
+        # average pooling
+        #output = output.mean([1])
+        
+        return output
+
+
+class LSTMGenerator(torch.nn.Module):
+    def __init__(self,channel_noise = 60,
+                 embed_size = 300,
+                 output_size=30,
+                 hidden_size=200,
+                 num_lstm_layers=2,
+                 dropout=0.5,
+                 activation = torch.nn.LeakyReLU(0.2)):
+        super().__init__()
+        
+        self.output_activation = torch.nn.Tanh()
+        self.activation = activation
+        self.fully_connected = torch.nn.Linear(channel_noise + embed_size, hidden_size)
+        self.lstm = torch.nn.LSTM(hidden_size, hidden_size, num_layers=num_lstm_layers, batch_first = True, dropout=dropout)
+        self.post_linear = torch.nn.Linear(hidden_size, output_size)
+
+
+    def forward(self, x, lens, vector, *args):
+        x = torch.cat([x,vector.unsqueeze(1).repeat(1,x.shape[1],1)], dim = 2)
+        output = self.fully_connected(x)
+        output = self.activation(output)
+        output, _ = self.lstm(output)
+        #output = torch.stack([output[i, (last - 1).long(), :] for i, last in enumerate(lens)])
+        
+        output = self.post_linear(output)
+        output = self.output_activation(output)
+
         return output

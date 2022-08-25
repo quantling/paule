@@ -72,6 +72,40 @@ cp_theoretical_stds = np.array([5.00000e-01, 1.25000e+00, 2.50000e-01, 3.50000e+
        1.00000e+04, 1.75000e-01, 1.75000e-01, 2.50000e-01, 1.57075e+00,
        1.00000e+00, 5.00000e-01, 5.00000e-01, 5.00000e+01, 2.00000e+01])
 
+ARTICULATOR = {0: 'vocal folds',
+               1: 'tongue',
+               2: 'lower incisors',
+               3: 'lower lip',
+               4: 'other articulator',
+               5: 'num articulators',
+               }
+
+min_area = 0  # 0.0001
+max_area = 15 # 0.0001
+
+min_length = 0.23962031463970312
+max_length = 0.6217119410833707
+
+max_incisor = 18 # 17.752924117638145
+min_incisor = 14 # 14.832484114030665
+
+max_tongue = 1
+min_tongue = -1
+
+max_velum = 1
+min_velum = 0 # 0.0001
+
+# tube 0:40 tube area, 40:80 tube length, 80 Incisor position, 81 tongue tip, 82 velum opening
+#tube_mins = np.concatenate([np.repeat(min_area,40), np.repeat(min_length,40), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
+#tube_maxs = np.concatenate([np.repeat(max_area,40), np.repeat(max_length,40), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+
+# tube sections area 0:6, 7 Incisor position, 8 tongue tip, 9 velum opening
+tube_mins = np.concatenate([np.repeat(min_area,7), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
+tube_maxs = np.concatenate([np.repeat(max_area,7), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+
+tube_theoretical_means = np.mean(np.stack([tube_mins,tube_maxs]),axis=0)
+tube_theoretical_stds = np.std(np.stack([tube_mins,tube_maxs]),axis=0)
+
 
 def librosa_melspec(wav, sample_rate):
     wav = librosa.resample(wav, orig_sr=sample_rate, target_sr=44100,
@@ -88,6 +122,17 @@ def normalize_cp(cp):
 def inv_normalize_cp(norm_cp):
     return cp_theoretical_stds * norm_cp + cp_theoretical_means
 
+#def normalize_tube(tube):
+#    return (tube - tube_mins)/(tube_maxs - tube_mins)
+
+#def inv_normalize_tube(norm_tube):
+#    return norm_tube * (tube_maxs - tube_mins) + tube_mins
+
+def normalize_tube(tube):
+    return (tube - tube_theoretical_means)/tube_theoretical_stds
+
+def inv_normalize_tube(norm_tube):
+    return norm_tube * tube_theoretical_stds + tube_theoretical_means
 
 # -83.52182518111363
 mel_mean_librosa = librosa_melspec(np.zeros(5000), 44100)[0, 0]
@@ -253,6 +298,124 @@ def mel_to_sig(mel, mel_min=0.0):
     sig = np.concatenate((np.zeros(55), sig, np.zeros(55)))
     return (sig, 44100)
 
+def array_to_tensor(array):
+    """
+    Creates a Tensor with batch dim = 1
+    """
+    torch_tensor = array.copy()
+    torch_tensor.shape = (1,) + torch_tensor.shape
+    torch_tensor = torch.from_numpy(torch_tensor).detach().clone()
+    return torch_tensor
+
+def speak_and_extract_tube_information(cp_param):
+    """
+    Calls the vocal tract lab to synthesize an audio signal from the cp_param.
+    Parameters
+    ==========
+    cp_param : np.array
+        array containing the vocal and glottis parameters for each time step
+        which is 110 / 44100 seoconds (roughly 2.5 ms)
+    Returns
+    =======
+    (signal, sampling rate, tube_info) : np.array, int, dict
+        returns the signal which is number of time steps in the cp_param array
+        minus one times the time step length, i. e. ``(cp_param.shape[0] - 1) *
+        110 / 44100``
+    """
+    # get some constants
+    audio_sampling_rate = ctypes.c_int(0)
+    number_tube_sections = ctypes.c_int(0)
+    number_vocal_tract_parameters = ctypes.c_int(0)
+    number_glottis_parameters = ctypes.c_int(0)
+    number_audio_samples_per_tract_state = ctypes.c_int(0)
+    internal_sampling_rate = ctypes.c_double(0)
+
+    VTL.vtlGetConstants(ctypes.byref(audio_sampling_rate),
+                        ctypes.byref(number_tube_sections),
+                        ctypes.byref(number_vocal_tract_parameters),
+                        ctypes.byref(number_glottis_parameters),
+                        ctypes.byref(number_audio_samples_per_tract_state),
+                        ctypes.byref(internal_sampling_rate))
+
+    assert audio_sampling_rate.value == 44100
+    assert number_vocal_tract_parameters.value == 19
+    assert number_glottis_parameters.value == 11
+
+    number_frames = cp_param.shape[0]
+    frame_steps = 110  # 2.5 ms
+    # within first parenthesis type definition, second initialisation
+    audio = [(ctypes.c_double * int(frame_steps))() for _ in range(number_frames - 1)]
+
+    # init the arrays
+    tract_params = [(ctypes.c_double * (number_vocal_tract_parameters.value))() for _ in range(number_frames)]
+    glottis_params = [(ctypes.c_double * (number_glottis_parameters.value))() for _ in range(number_frames)]
+
+    # fill in data
+    tmp = np.ascontiguousarray(cp_param[:, 0:19])
+    for i in range(number_frames):
+        tract_params[i][:] = tmp[i]
+    del tmp
+
+    tmp = np.ascontiguousarray(cp_param[:, 19:30])
+    for i in range(number_frames):
+        glottis_params[i][:] = tmp[i]
+    del tmp
+
+    # tube sections
+    tube_length_cm = [(ctypes.c_double * 40)() for _ in range(number_frames)]
+    tube_area_cm2 = [(ctypes.c_double * 40)() for _ in range(number_frames)]
+    tube_articulator = [(ctypes.c_int * 40)() for _ in range(number_frames)]
+    incisor_pos_cm = [ctypes.c_double(0) for _ in range(number_frames)]
+    tongue_tip_side_elevation = [ctypes.c_double(0) for _ in range(number_frames)]
+    velum_opening_cm2 = [ctypes.c_double(0) for _ in range(number_frames)]
+
+    # Reset time-domain synthesis
+    failure = VTL.vtlSynthesisReset()
+    if failure != 0:
+        raise ValueError(f'Error in vtlSynthesisReset! Errorcode: {failure}')
+
+    for i in range(number_frames):
+        if i == 0:
+            failure = VTL.vtlSynthesisAddTract(0, ctypes.byref(audio[0]),
+                                               ctypes.byref(tract_params[i]),
+                                               ctypes.byref(glottis_params[i]))
+        else:
+            failure = VTL.vtlSynthesisAddTract(frame_steps, ctypes.byref(audio[i-1]),
+                                               ctypes.byref(tract_params[i]),
+
+                                               ctypes.byref(glottis_params[i]))
+        if failure != 0:
+            raise ValueError('Error in vtlSynthesisAddTract! Errorcode: %i' % failure)
+
+        # export
+        failure = VTL.vtlTractToTube(ctypes.byref(tract_params[i]),
+                                     ctypes.byref(tube_length_cm[i]),
+                                     ctypes.byref(tube_area_cm2[i]),
+                                     ctypes.byref(tube_articulator[i]),
+                                     ctypes.byref(incisor_pos_cm[i]),
+                                     ctypes.byref(tongue_tip_side_elevation[i]),
+                                     ctypes.byref(velum_opening_cm2[i]))
+
+        if failure != 0:
+            raise ValueError('Error in vtlTractToTube! Errorcode: %i' % failure)
+
+    audio = np.ascontiguousarray(audio)
+    audio.shape = ((number_frames - 1) * frame_steps,)
+
+    arti = [[ARTICULATOR[sec] for sec in list(tube_articulator_i)] for tube_articulator_i in list(tube_articulator)]
+    incisor_pos_cm = [x.value for x in incisor_pos_cm]
+    tongue_tip_side_elevation = [x.value for x in tongue_tip_side_elevation]
+    velum_opening_cm2 = [x.value for x in velum_opening_cm2]
+
+    tube_info = {"tube_length_cm": np.array(tube_length_cm),
+                 "tube_area_cm2": np.array(tube_area_cm2),
+                 "tube_articulator": np.array(arti),
+                 "incisor_pos_cm": np.array(incisor_pos_cm),
+                 "tongue_tip_side_elevation": np.array(tongue_tip_side_elevation),
+                 "velum_opening_cm2": np.array(velum_opening_cm2)}
+
+    return (audio, 44100, tube_info)
+
 
 def plot_cp(cp, file_name):
     fig = plt.figure(figsize=(10, 10))
@@ -310,6 +473,11 @@ def pad_same_to_even_seq_length(array):
     else:
         return array
 
+def half_seq_by_average_pooling(seq):
+    if len(seq) % 2:
+        seq = pad_same_to_even_seq_length(seq)
+    half_seq = (seq[::2,:] + seq[1::2,:])/2
+    return half_seq
 
 def export_svgs(cps, path='svgs/', hop_length=5):
     """
@@ -354,7 +522,7 @@ def get_vel_acc_jerk(trajectory, *, lag=1):
 rmse_loss = RMSELoss(eps=0)    
 
 
-def cp_trajacetory_loss(Y_hat, tgts):
+def cp_trajectory_loss(Y_hat, tgts):
     """
     Calculate additive loss using the RMSE of position velocity , acc and jerk
 
@@ -598,3 +766,23 @@ def ges_to_cps(ges_file):
         cps = read_cp(tract_sequence_file_name.decode())
     return cps
 
+def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside =7, calculate="min"):
+    length_per_time = np.cumsum(tube_length,axis=1)
+    section_area_per_time = []
+    for t, l in enumerate(length_per_time):
+        steps = [length_per_time[t][-1]-i*1 for i in range(cm_inside+1)][::-1]
+        section_area = []
+        for i,step in enumerate(steps[:-1]):
+            area = tube_area[t,np.where(np.logical_and(l>=step, l<=steps[i+1]))][0]
+            if calculate == "raw":
+                section_area += [area]
+            elif calculate == "mean":
+                section_area += [np.mean(area)]
+            elif calculate == "binary":
+                section_area += [bool(np.sum(area <= 0.001))]
+            elif calculate == "min":
+                section_area += [np.min(area)]
+            else:
+                raise Exception(f"calculate must be one of ['raw', 'mean', 'binary', 'min']")
+        section_area_per_time += [section_area]
+    return np.asarray(section_area_per_time)
