@@ -332,7 +332,7 @@ class Paule():
                 self.tube_optimizer = torch.optim.Adam(self.cp_tube_model.parameters(), lr=0.001)
             self.tube_criterion = rmse_loss
 
-        self.best_synthesis_acoustic = None  
+        self.best_synthesis_acoustic = None
         self.best_synthesis_semantic = None
         if self.use_somatosensory_feedback:
             self.best_synthesis_somatosensory = None
@@ -388,6 +388,14 @@ class Paule():
             epoch = [idxs[i * batch_size:(i * batch_size) + batch_size] for i in
                      range(int(len(idxs) / batch_size))]  # cut into batches
         return epoch
+
+    def plan_iterative(self, *,
+                       target_acoustic=None,
+                       target_semvecs=None,
+                       target_seq_lengths=None,
+                       overlap=8, **kwargs):
+        pass
+
 
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=0.001,
                      learning_rate_learning_inv=None,
@@ -652,7 +660,6 @@ class Paule():
         prod_mel_steps = list()
         pred_model_loss = list()
 
-
         optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning)
 
         if self.use_somatosensory_feedback:
@@ -671,13 +678,13 @@ class Paule():
 
             tube_model_loss = list()
 
-
         # initial results
         with torch.no_grad():
             initial_pred_mel = self.pred_model(xx_new)
             initial_pred_semvec = self.embedder(initial_pred_mel, (torch.tensor(initial_pred_mel.shape[1]),))
 
         xx_new_numpy = xx_new[-1, :, :].detach().cpu().numpy().copy()
+
         if self.use_somatosensory_feedback:
             with torch.no_grad():
                 initial_pred_tube = self.cp_tube_model(xx_new)
@@ -727,14 +734,15 @@ class Paule():
         if not past_cp is None:
             target_mel = torch.cat((initial_prod_mel[:, 0:(past_cp.shape[0] // 2), :], target_mel), dim=1)
             target_mel = target_mel.to(self.device)
-        
+
         with torch.no_grad():
             initial_prod_semvec = self.embedder(initial_prod_mel, (torch.tensor(initial_prod_mel.shape[1]),))
-        
+
         initial_prod_mel = initial_prod_mel[-1, :, :].detach().cpu().numpy().copy()
         initial_pred_mel = initial_pred_mel[-1, :, :].detach().cpu().numpy().copy()
         initial_prod_semvec = initial_prod_semvec[-1, :].detach().cpu().numpy().copy()
         initial_pred_semvec = initial_pred_semvec[-1, :].detach().cpu().numpy().copy()
+
 
         self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)  
         self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)
@@ -1026,7 +1034,7 @@ class Paule():
                             if self.use_somatosensory_feedback:
                                 print("Produced Tube Semvec Loss: ", float(prod_tube_semvec_loss.item()))
                             print("")
-                        
+
                         new_synthesis_acoustic = BestSynthesisAcoustic(float(prod_loss.item()), xx_new_numpy, sig, prod_mel[-1, :, :].detach().cpu().numpy().copy(), pred_mel[-1, :, :].detach().cpu().numpy().copy())
                         new_synthesis_semantic = BestSynthesisSemantic(float(prod_semvec_loss.item()), xx_new_numpy, sig, prod_semvec[-1, :].detach().cpu().numpy().copy(), pred_semvec[-1, :].detach().cpu().numpy().copy())
 
