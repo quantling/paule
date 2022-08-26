@@ -53,7 +53,6 @@ from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
 
 from . import visualize
 
-
 DIR = os.path.dirname(__file__)
 
 
@@ -138,6 +137,11 @@ class TanhStraightThrough(torch.autograd.Function):
 
 def tanh_straight_through(u):
     return TanhStraightThrough.apply(u)
+
+
+
+
+
 
 
 class Paule():
@@ -293,6 +297,12 @@ class Paule():
 
         #self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
         self.continue_data = continue_data
+        self.continue_data_limit = 1000  # max amount of training data stored in paule instance
+
+        if self.continue_data is not None:
+            if len(self.continue_data) > self.continue_data_limit:
+                random_sample = random.sample(range(len(self.continue_data)), self.continue_data_limit)
+                self.continue_data = self.continue_data.iloc[random_sample].reset_index(drop=True)
 
         if pred_optimizer:
             self.pred_optimizer = pred_optimizer
@@ -303,7 +313,7 @@ class Paule():
         if inv_optimizer:
             self.inv_optimizer = inv_optimizer
         else:
-            self.inv_optimizer = torch.optim.Adam(self.inv_model.parameters(), lr=0.00001)
+            self.inv_optimizer = torch.optim.Adam(self.inv_model.parameters(), lr=0.001)
         self.inv_criterion = cp_trajectory_loss
 
         if self.use_somatosensory_feedback:
@@ -318,6 +328,57 @@ class Paule():
         if self.use_somatosensory_feedback:
             self.best_synthesis_somatosensory = None
 
+    def create_epoch_batches(self, df_length, batch_size, shuffle=True, same_size_batching=False, sorted_training_length_keys=None, training_length_dict=None):
+        """
+        Create Epoch by batching indices
+
+        :param df_length: int
+            total number of samples in training set
+        :param batch_size: int
+            number of samples in one batch
+        :param shuffle: bool
+            keep order of training set or random shuffle
+        :param same_size_batching: bool
+            create epoch of batches with similar long samples to avoid long padding
+        :return epoch: list of list
+            list of lists containing indices for each batch in one epoch
+        """
+
+        if same_size_batching and (sorted_training_length_keys is None or training_length_dict is None):
+            raise ValueError("List of unique lengths and dictionary containing indices of samples with corresponding length needed for same_size_batching!")
+
+        if same_size_batching:
+            epoch = []  # list of batches
+            foundlings = []  # rest samples for each length which do not fit into one batch
+            for length in sorted_training_length_keys:  # iterate over each unique length in training data
+                length_idxs = training_length_dict[length]  # dictionary containing indices of samples with length
+                rest = len(length_idxs) % batch_size
+                random.shuffle(length_idxs)  # shuffle indices
+                epoch += [length_idxs[i * batch_size:(i * batch_size) + batch_size] for i in
+                          range(int(len(length_idxs) / batch_size))]  # cut into batches and append to epoch
+                if rest > 0:
+                    foundlings += list(length_idxs[
+                                       -rest:])  # remaining indices which do not fit into one batch are stored in foundling
+            foundlings = np.asarray(foundlings)
+            rest = len(foundlings) % batch_size
+            epoch += [foundlings[i * batch_size:(i * batch_size) + batch_size] for i in
+                      range(int(len(
+                          foundlings) / batch_size))]  # cut foudnlings into batches (because inserted sorted this ensures minimal padding)
+            if rest > 0:
+                epoch += [foundlings[-rest:]]  # put rest into one batch (allow smaller batch)
+            random.shuffle(epoch)
+
+        else:
+            rest = df_length % batch_size
+            idxs = list(range(df_length))
+            if shuffle:
+                random.shuffle(idxs)  # shuffle indicees
+            if rest > 0:
+                idxs += idxs[:(
+                            batch_size - rest)]  # rolling batching (if number samples not divisible by batch_size append first again)
+            epoch = [idxs[i * batch_size:(i * batch_size) + batch_size] for i in
+                     range(int(len(idxs) / batch_size))]  # cut into batches
+        return epoch
 
     def plan_resynth(self, *, learning_rate_planning=0.01, learning_rate_learning=0.001,
                      learning_rate_learning_inv=None,
@@ -332,7 +393,8 @@ class Paule():
                      continue_learning=True,
                      continue_learning_inv=False,
                      continue_learning_tube=True,
-                     add_training_data=False,
+                     add_training_data_pred=False,
+                     add_training_data_inv=False,
                      n_batches=3, batch_size=8, n_epochs=10,
                      log_ii=1,
                      log_semantics=True,
@@ -1043,105 +1105,152 @@ class Paule():
 
             # execute and continue learning
             if continue_learning:
-                produced_data = pd.DataFrame(columns=['cp_norm', 'melspec_norm_synthesized', "tube_norm"])
-                produced_data["cp_norm"] = cp_steps_ii
-                produced_data["melspec_norm_synthesized"] = prod_mel_steps_ii
+                produced_data_ii = pd.DataFrame(columns=['vector', 'cp_norm', 'melspec_norm_synthesized', "tube_norm", 'segment_data'])
+                produced_data_ii["cp_norm"] = cp_steps_ii
+                produced_data_ii["melspec_norm_synthesized"] = prod_mel_steps_ii
+                produced_data_ii["vector"] = [target_semvec[0].detach().cpu().numpy().copy() for _ in range(len(produced_data_ii))]
+                produced_data_ii["segment_data"] = False
                 if self.use_somatosensory_feedback:
-                    produced_data["tube_norm"] = prod_tube_steps_ii
+                    produced_data_ii["tube_norm"] = prod_tube_steps_ii
 
-                if add_training_data:
+                if add_training_data_pred or add_training_data_inv:
                     # update with new sample
-                    if len(produced_data) < int(0.5 * batch_size) * n_batches:
-                        batch_train_new = random.sample(range(len(produced_data)), k=len(produced_data))
-                        batch_train = random.sample(range(len(self.data)),
-                                                    k=batch_size * n_batches - len(produced_data))
+                    if len(produced_data_ii) < int(0.5 * batch_size) * n_batches:
+                        batch_train_new = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
+                        batch_train = random.sample(range(len(self.continue_data)),
+                                                    k=batch_size * n_batches - len(produced_data_ii))
 
                     else:
-                        batch_train = random.sample(range(len(self.data)), k=int(0.5 * batch_size) * n_batches)
-                        batch_train_new = random.sample(range(len(produced_data)), k=int(0.5 * batch_size) * n_batches)
+                        batch_train = random.sample(range(len(self.continue_data)), k=int(0.5 * batch_size) * n_batches)
+                        batch_train_new = random.sample(range(len(produced_data_ii)), k=int(0.5 * batch_size) * n_batches)
 
                     if self.use_somatosensory_feedback:
-                        train_data_samples = self.data[['cp_norm', 'melspec_norm_synthesized', 'tube_norm']].iloc[
+                        train_data_samples = self.continue_data[['vector','cp_norm', 'melspec_norm_synthesized', 'tube_norm','segment_data']].iloc[
                             batch_train].reset_index(drop=True)
                     else:
-                        train_data_samples = self.data[['cp_norm', 'melspec_norm_synthesized']].iloc[
+                        train_data_samples = self.continue_data[['vector', 'cp_norm', 'melspec_norm_synthesized', 'segment_data']].iloc[
                             batch_train].reset_index(drop=True)
-                    produced_data_samples = produced_data.iloc[batch_train_new].reset_index(drop=True)
 
-                    continue_data = pd.concat([train_data_samples, produced_data_samples])
+                    produced_data_ii_samples = produced_data_ii.iloc[batch_train_new].reset_index(drop=True)
+                    continue_data_ii = pd.concat([train_data_samples, produced_data_ii_samples])
+
                     # ensure in each batch same amount new and old samples if possible
                     # continue_data.sort_index(inplace=True)
                     # sort by length
-                    continue_data["lens_input"] = np.array(continue_data["cp_norm"].apply(len), dtype=int)
-                    continue_data["lens_output"] = np.array(continue_data["melspec_norm_synthesized"].apply(len),
+                    continue_data_ii["lens_input"] = np.array(continue_data_ii["cp_norm"].apply(len), dtype=int)
+                    continue_data_ii["lens_output"] = np.array(continue_data_ii["melspec_norm_synthesized"].apply(len),
                                                             dtype=int)
-                    continue_data.sort_values(by="lens_input", inplace=True)
-
+                    continue_data_ii.sort_values(by="lens_input", inplace=True)
                     n_train_batches = n_batches
-                else:
-                    batch_train_new = random.sample(range(len(produced_data)), k=len(produced_data))
-                    produced_data_samples = produced_data.iloc[batch_train_new]
 
-                    if len(produced_data_samples) < batch_size * n_batches:
-                        # rolling batching (fill one more batch with already seen samples)
-                        full_batches = len(produced_data_samples) // batch_size
-                        samples_to_fill_batch = int(abs(len(produced_data_samples) - batch_size * full_batches + 1))
-                        if samples_to_fill_batch > 0:
-                            fill_data = produced_data_samples.iloc[:samples_to_fill_batch].copy()
-                            continue_data = pd.concat([produced_data_samples, fill_data])
-                            if verbose:
-                                print("Not enough data produced...Training on %d instead of %d batches!" % (
-                                (full_batches + 1), n_batches))
-                                if len(continue_data) % batch_size > 0:
-                                    print("Reduced last batch...Batchsize %d instead of %d!" % (
-                                    (len(continue_data) % batch_size), batch_size))
 
-                            n_train_batches = full_batches + 1
+                batch_train_new = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
+                produced_data_ii_samples = produced_data_ii.iloc[batch_train_new].copy()
 
-                        else:
-                            continue_data = produced_data_samples.copy()
-                            print("Not enough produced data...Training on %d instead of %d batches!" % (
+                if len(produced_data_ii_samples) < batch_size * n_batches:
+                    # rolling batching (fill one more batch with already seen samples)
+                    full_batches = len(produced_data_ii_samples) // batch_size
+                    samples_to_fill_batch = int(abs(len(produced_data_ii_samples) - batch_size * full_batches + 1))
+                    if samples_to_fill_batch > 0:
+                        fill_data = produced_data_ii_samples.iloc[:samples_to_fill_batch].copy()
+                        produced_data_ii_samples = pd.concat([produced_data_ii_samples, fill_data])
+                        if verbose:
+                            print("Not enough data produced...Training on %d instead of %d batches!" % (
                             (full_batches + 1), n_batches))
-                            n_train_batches = full_batches
+                            if len(produced_data_ii_samples) % batch_size > 0:
+                                print("Reduced last batch...Batchsize %d instead of %d!" % (
+                                (len(produced_data_ii_samples) % batch_size), batch_size))
+
+                        n_train_batches = full_batches + 1
+
                     else:
-                        continue_data = produced_data_samples.copy()
-                        n_train_batches = n_batches
+                        #continue_data_ii = produced_data_samples.copy()
+                        print("Not enough produced data...Training on %d instead of %d batches!" % (
+                        (full_batches + 1), n_batches))
+                        n_train_batches = full_batches
+                #else:
+                #    continue_data_ii = produced_data_samples.copy()
+                #    n_train_batches = n_batches
 
-                    # ensure in each batch same amount new and old samples if possible
-                    # continue_data.sort_index(inplace=True)
-                    # sort by length
-                    continue_data["lens_input"] = np.array(continue_data["cp_norm"].apply(len), dtype=int)
-                    continue_data["lens_output"] = np.array(continue_data["melspec_norm_synthesized"].apply(len),
-                                                            dtype=int)
-                    continue_data.sort_values(by="lens_input", inplace=True)
+                #continue_data_ii["lens_input"] = np.array(continue_data_ii["cp_norm"].apply(len), dtype=int)
+                #continue_data_ii["lens_output"] = np.array(continue_data_ii["melspec_norm_synthesized"].apply(len),
+                #                                        dtype=int)
+                #continue_data_ii.sort_values(by="lens_input", inplace=True)
 
-                inps = continue_data["cp_norm"]
-                tgts = continue_data["melspec_norm_synthesized"]
+                produced_data_ii_samples["lens_input"] = np.array(produced_data_ii_samples["cp_norm"].apply(len), dtype=int)
+                produced_data_ii_samples["lens_output"] = np.array(produced_data_ii_samples["melspec_norm_synthesized"].apply(len),
+                                                           dtype=int)
+                produced_data_ii_samples.sort_values(by="lens_input", inplace=True)
 
-                lens_input = torch.tensor(np.array(continue_data.lens_input)).to(self.device)
-                lens_output = torch.tensor(np.array(continue_data.lens_output)).to(self.device)
+                if add_training_data_pred:
+                    training_data_pred = continue_data_ii
+                else:
+                    training_data_pred = produced_data_ii_samples
+
+                training_length_dict_pred = {}
+                lens_training_cps_pred = np.asarray(training_data_pred.cp_norm.apply(len))
+                lengths, counts = np.unique(lens_training_cps_pred, return_counts=True)
+                sorted_training_length_keys_pred = np.sort(lengths)
+                for length in sorted_training_length_keys_pred:
+                    training_length_dict_pred[length] = np.where(lens_training_cps_pred == length)[0]
+
+                inps = training_data_pred["cp_norm"]
+                tgts = training_data_pred["melspec_norm_synthesized"]
+
+                lens_input = torch.tensor(np.array(training_data_pred.lens_input)).to(self.device)
+                lens_output = torch.tensor(np.array(training_data_pred.lens_output)).to(self.device)
 
                 if self.use_somatosensory_feedback:
-                    tgts_tube = continue_data["tube_norm"]
-                    lens_output_tube = torch.tensor(np.array(continue_data.lens_input)).to(self.device)
+                    tgts_tube = training_data_pred["tube_norm"]
+                    lens_output_tube = torch.tensor(np.array(training_data_pred.lens_input)).to(self.device)
 
-                del continue_data
-                del produced_data
+                if continue_learning_inv:
+                    if add_training_data_inv:
+                        training_data_inv = continue_data_ii
+                    else:
+                        training_data_inv = produced_data_ii_samples
+
+                    training_length_dict_inv = {}
+                    lens_training_cps_inv = np.asarray(training_data_inv.cp_norm.apply(len))
+                    lengths, counts = np.unique(lens_training_cps_inv, return_counts=True)
+                    sorted_training_length_keys_inv = np.sort(lengths)
+                    for length in sorted_training_length_keys_inv:
+                        training_length_dict_inv[length] = np.where(lens_training_cps_inv == length)[0]
+
+                    inps_inv = training_data_inv["melspec_norm_synthesized"]
+                    tgts_inv = training_data_inv["cp_norm"]
+
+                    lens_input_inv = torch.tensor(np.array(training_data_inv.lens_output)).to(self.device)
+                    lens_output_inv = torch.tensor(np.array(training_data_inv.lens_input)).to(self.device)
+
+
 
                 for e in range(n_epochs):
+                    epoch_ii = self.create_epoch_batches(training_data_pred, batch_size, shuffle=True,
+                                                         same_size_batching=True,
+                                                         sorted_training_length_keys=sorted_training_length_keys_pred,
+                                                         training_length_dict=training_length_dict_pred)
                     avg_loss = list()
-                    if continue_learning_inv:
-                        avg_loss_inv = list()
                     if continue_learning_tube & self.use_somatosensory_feedback:
                         avg_loss_tube = list()
-                    for j in range(n_train_batches):
-                        lens_input_j = lens_input[j * batch_size:(j * batch_size) + batch_size]
-                        batch_input = inps.iloc[j * batch_size:(j * batch_size) + batch_size]
+                    #for j in range(n_train_batches):
+                    for j in epoch_ii:
+                        #lens_input_j = lens_input[j * batch_size:(j * batch_size) + batch_size]
+                        #batch_input = inps.iloc[j * batch_size:(j * batch_size) + batch_size]
+                        #batch_input = pad_batch_online(lens_input_j, batch_input, self.device)
+
+                        #lens_output_j = lens_output[j * batch_size:(j * batch_size) + batch_size]
+                        #batch_output = tgts.iloc[j * batch_size:(j * batch_size) + batch_size]
+                        #batch_output = pad_batch_online(lens_output_j, batch_output, self.device)
+
+                        lens_input_j = lens_input[j]
+                        batch_input = inps.iloc[j]
                         batch_input = pad_batch_online(lens_input_j, batch_input, self.device)
 
-                        lens_output_j = lens_output[j * batch_size:(j * batch_size) + batch_size]
-                        batch_output = tgts.iloc[j * batch_size:(j * batch_size) + batch_size]
+                        lens_output_j = lens_output[j]
+                        batch_output = tgts.iloc[j]
                         batch_output = pad_batch_online(lens_output_j, batch_output, self.device)
+
 
                         Y_hat = self.pred_model(batch_input, lens_input_j)
 
@@ -1152,21 +1261,12 @@ class Paule():
 
                         avg_loss.append(float(pred_loss.item()))
 
-                        if continue_learning_inv:
-                            Y_hat = self.inv_model(batch_output, lens_output_j)
-
-                            self.inv_optimizer.zero_grad()
-                            inv_loss = self.inv_criterion(Y_hat, batch_input)
-                            inv_sub_losses = inv_loss[1:]  # sublosses
-                            inv_loss = inv_loss[0] # total loss
-                            inv_loss.backward()
-                            self.inv_optimizer.step()
-
-                            avg_loss_inv.append(float(inv_loss.item()))
-
                         if self.use_somatosensory_feedback & continue_learning_tube:
-                            lens_output_tube_j = lens_output_tube[j * batch_size:(j * batch_size) + batch_size]
-                            batch_output_tube = tgts_tube.iloc[j * batch_size:(j * batch_size) + batch_size]
+                            #lens_output_tube_j = lens_output_tube[j * batch_size:(j * batch_size) + batch_size]
+                            #batch_output_tube = tgts_tube.iloc[j * batch_size:(j * batch_size) + batch_size]
+                            #batch_output_tube = pad_batch_online(lens_output_tube_j, batch_output_tube, self.device)
+                            lens_output_tube_j = lens_output_tube[j]
+                            batch_output_tube = tgts_tube.iloc[j]
                             batch_output_tube = pad_batch_online(lens_output_tube_j, batch_output_tube, self.device)
 
                             Y_hat = self.cp_tube_model(batch_input, lens_input_j)
@@ -1182,6 +1282,48 @@ class Paule():
 
                     if self.use_somatosensory_feedback:
                         tube_model_loss.append(np.mean(avg_loss_tube))
+
+                if continue_learning_inv:
+                    for e in range(n_epochs):
+                        epoch_ii = self.create_epoch_batches(training_data_inv, batch_size, shuffle=True,
+                                                             same_size_batching=True,
+                                                             sorted_training_length_keys=sorted_training_length_keys_inv,
+                                                             training_length_dict=training_length_dict_inv)
+                        avg_loss_inv = list()
+                        for j in epoch_ii:
+                            lens_input_j = lens_input_inv[j]
+                            batch_input = inps_inv.iloc[j]
+                            batch_input = pad_batch_online(lens_input_j, batch_input, self.device)
+
+                            lens_output_j = lens_output_inv[j]
+                            batch_output = tgts_inv.iloc[j]
+                            batch_output = pad_batch_online(lens_output_j, batch_output, self.device)
+
+
+                            Y_hat = self.inv_model(batch_input, lens_input_j)
+
+                            self.inv_optimizer.zero_grad()
+                            inv_loss = self.inv_criterion(Y_hat, batch_output)
+                            inv_sub_losses = inv_loss[1:]  # sublosses
+                            inv_loss = inv_loss[0]  # total loss
+                            inv_loss.backward()
+                            self.inv_optimizer.step()
+
+                            avg_loss_inv.append(float(inv_loss.item()))
+
+                if not self.continue_data is None:
+                    self.continue_data = pd.concat([self.continue_data, produced_data_ii]).reset_index(drop=True)
+                    if len(self.continue_data) > self.continue_data_limit:
+                        random_sample = random.sample(range(len(self.continue_data)), self.continue_data_limit)
+                        self.continue_data = self.continue_data.iloc[random_sample].reset_index(drop=True)
+
+                del produced_data_ii_samples
+                del train_data_samples
+                del continue_data_ii
+                del produced_data_ii
+                del training_data_pred
+                if continue_learning_inv:
+                    del training_data_inv
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
