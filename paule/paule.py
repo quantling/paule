@@ -37,7 +37,7 @@ from torch.nn import L1Loss, MSELoss
 import soundfile as sf
 
 # Set seed
-import util
+from . import util
 
 torch.manual_seed(20200905)
 random.seed(20200905)
@@ -53,14 +53,14 @@ tqdm.pandas()
 
 #from . import visualize
 
-from util import (speak, inv_normalize_cp, normalize_mel_librosa,
+from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajectory_loss, mel_to_sig,
         pad_batch_online, speak_and_extract_tube_information, inv_normalize_tube, normalize_tube, get_area_info_within_oral_cavity)
 
-from models import (ForwardModel, InverseModelMelTimeSmoothResidual,
+from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
         MelEmbeddingModelMelSmoothResidualUpsampling, EmbeddingModel, Generator, NonLinearModel)
 
-import visualize
+from . import visualize
 
 DIR = os.path.dirname(__file__)
 
