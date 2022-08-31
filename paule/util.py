@@ -80,24 +80,20 @@ ARTICULATOR = {0: 'vocal folds',
                5: 'num articulators',
                }
 
-min_area = 0  # 0.0001
-max_area = 15 # 0.0001
+min_area = 0
+max_area = 15
 
 min_length = 0.23962031463970312
 max_length = 0.6217119410833707
 
-max_incisor = 18 # 17.752924117638145
-min_incisor = 14 # 14.832484114030665
+max_incisor = 18
+min_incisor = 14
 
 max_tongue = 1
 min_tongue = -1
 
 max_velum = 1
-min_velum = 0 # 0.0001
-
-# tube 0:40 tube area, 40:80 tube length, 80 Incisor position, 81 tongue tip, 82 velum opening
-#tube_mins = np.concatenate([np.repeat(min_area,40), np.repeat(min_length,40), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
-#tube_maxs = np.concatenate([np.repeat(max_area,40), np.repeat(max_length,40), np.array([max_incisor]), np.array([max_tongue]), np.array([max_velum])])
+min_velum = 0
 
 # tube sections area 0:6, 7 Incisor position, 8 tongue tip, 9 velum opening
 tube_mins = np.concatenate([np.repeat(min_area,7), np.array([min_incisor]), np.array([min_tongue]), np.array([min_velum])])
@@ -121,12 +117,6 @@ def normalize_cp(cp):
 
 def inv_normalize_cp(norm_cp):
     return cp_theoretical_stds * norm_cp + cp_theoretical_means
-
-#def normalize_tube(tube):
-#    return (tube - tube_mins)/(tube_maxs - tube_mins)
-
-#def inv_normalize_tube(norm_tube):
-#    return norm_tube * (tube_maxs - tube_mins) + tube_mins
 
 def normalize_tube(tube):
     return (tube - tube_theoretical_means)/tube_theoretical_stds
@@ -181,7 +171,7 @@ def speak(cp_param):
     ==========
     cp_param : np.array
         array containing the vocal and glottis parameters for each time step
-        which is 110 / 44100 seoconds (roughly 2.5 ms)
+        which is 110 / 44100 seoconds (roughly 2.5 ms) (seq_length, 30)
 
     Returns
     =======
@@ -301,6 +291,14 @@ def mel_to_sig(mel, mel_min=0.0):
 def array_to_tensor(array):
     """
     Creates a Tensor with batch dim = 1
+
+    Parameters
+    ==========
+    array : np.array
+
+    Returns
+    =======
+    torch_tensor : troch.tensor (1, ...)
     """
     torch_tensor = array.copy()
     torch_tensor.shape = (1,) + torch_tensor.shape
@@ -309,18 +307,27 @@ def array_to_tensor(array):
 
 def speak_and_extract_tube_information(cp_param):
     """
-    Calls the vocal tract lab to synthesize an audio signal from the cp_param.
+    Calls the vocal tract lab to synthesize an audio signal from the cp_param and simultaneously extract tube information
     Parameters
     ==========
     cp_param : np.array
         array containing the vocal and glottis parameters for each time step
-        which is 110 / 44100 seoconds (roughly 2.5 ms)
+        which is 110 / 44100 seoconds (roughly 2.5 ms) (seq_length, 30)
     Returns
     =======
     (signal, sampling rate, tube_info) : np.array, int, dict
-        returns the signal which is number of time steps in the cp_param array
-        minus one times the time step length, i. e. ``(cp_param.shape[0] - 1) *
-        110 / 44100``
+        returns - the signal which is number of time steps in the cp_param array
+                minus one times the time step length, i. e. ``(cp_param.shape[0] - 1) *
+                110 / 44100``
+                - the sampling rate (44100)
+                - a dictionary containing arrays for the
+                tube_length_cm (seq_length, 40 tube segments),
+                tube_area_cm2 (seq_length, 40 tube segments),
+                tube_articulator (seq_length, 40 tube segments),
+                incisor_pos_cm (seq_length,),
+                tongue_tip_side_elevation (seq_length, ),
+                velum_opening_cm2 (seq_length, ).
+
     """
     # get some constants
     audio_sampling_rate = ctypes.c_int(0)
@@ -418,6 +425,17 @@ def speak_and_extract_tube_information(cp_param):
 
 
 def plot_cp(cp, file_name):
+    """
+    Plots the trajectory of the 3 control parameters with 10 in each subplot
+    ==========
+    cp : np.array
+        array containing the vocal and glottis parameters for each time step
+        which is 110 / 44100 seoconds (roughly 2.5 ms) (seq_length, 30)
+    filename: str
+        filename for saving plot
+    Returns
+    =======
+    """
     fig = plt.figure(figsize=(10, 10))
     ax1 = fig.add_axes([0.1, 0.65, 0.8, 0.3], ylim=(-3, 3))
     ax2 = fig.add_axes([0.1, 0.35, 0.8, 0.3], xticklabels=[], sharex=ax1, sharey=ax1)
@@ -437,6 +455,16 @@ def plot_cp(cp, file_name):
 
 
 def plot_mel(mel, file_name):
+    """
+    Plots the log-mel spectrogram
+    ==========
+    mel : np.array
+        normalised log mel spectrogram (n_mel, seq_length)
+    filename: str
+        filename for saving plot
+    Returns
+    =======
+    """
     fig = plt.figure(figsize=(10, 6))
     plt.imshow(mel.T, aspect='equal', vmin=-5, vmax=20)
     fig.savefig(file_name, dpi=300)
@@ -457,7 +485,7 @@ def stereo_to_mono(wave, which="both"):
 
     Returns
     =======
-    data: numpy.array
+    wave: np.array
 
     """
     if which == "left":
@@ -467,13 +495,36 @@ def stereo_to_mono(wave, which="both"):
     return (wave[:, 0] + wave[:, 1])/2
 
 
-def pad_same_to_even_seq_length(array):
-    if not array.shape[0] % 2 == 0:
-        return np.concatenate((array, array[-1:, :]), axis=0)
+def pad_same_to_even_seq_length(seq):
+    """
+    Pad a sequence to an even sequence length by concatenating the last element once
+
+    Parameters
+    seq: np.array
+    ==========
+
+    Returns
+    =======
+    seq: np.array
+    """
+
+    if not seq.shape[0] % 2 == 0:
+        return np.concatenate((seq, seq[-1:, :]), axis=0)
     else:
-        return array
+        return seq
 
 def half_seq_by_average_pooling(seq):
+    """
+    Half a sequence by averaging adjecent points in time
+
+    Parameters
+    seq: np.array
+    ==========
+
+    Returns
+    =======
+    half_seq: np.array
+    """
     if len(seq) % 2:
         seq = pad_same_to_even_seq_length(seq)
     half_seq = (seq[::2,:] + seq[1::2,:])/2
@@ -511,27 +562,44 @@ class RMSELoss(torch.nn.Module):
         loss = torch.sqrt(self.mse(yhat, y) + self.eps)
         return loss
 
+rmse_loss = RMSELoss(eps=0)
+
 def get_vel_acc_jerk(trajectory, *, lag=1):
-    """returns (velocity, acceleration, jerk) tuple"""
+    """
+    Approximates the velocity, acceleration, jerk for the given trajectory for a given lag
+
+    Parameters
+    ==========
+    trajectory : np.array
+    lag : int
+
+    Returns
+    =======
+    (velocity, acceleration, jerk) : np.array, np.array, np.array
+        returns the approximated velocity, acceleration and jerk of the trajectory for a given lag
+    """
+
     velocity = (trajectory[:, lag:, :] - trajectory[:, :-lag, :]) / lag
     acc = (velocity[:, 1:, :] - velocity[:, :-1, :]) / 1.0
     jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
     return velocity, acc, jerk
 
 
-rmse_loss = RMSELoss(eps=0)    
-
-
 def cp_trajectory_loss(Y_hat, tgts):
     """
-    Calculate additive loss using the RMSE of position velocity , acc and jerk
+    Calculates an additive loss using the RMSE between predicted and target position, velocity, acc and jerk
 
-    :param Y_hat: 3D torch.Tensor
-        model prediction
-    :param tgts: 3D torch.Tensor
-        target tensor
-    :return loss, pos_loss, vel_loss, acc_loss, jerk_loss: torch.Tensors
-        summed total loss with all individual losses
+    Parameters
+    ==========
+    Y_hat : 3D torch.tensor
+        model predictions (batch, seq_length, features)
+    tgts : 3D torch.tensor
+        target tensor (batch, seq_length, features)
+
+    Returns
+    =======
+    (loss, pos_loss, vel_loss, acc_loss, jerk_loss) : torch.tensor, torch.tensor, torch.tensor, torch.tensor, torch.tensor
+        returns the summed total loss and all individual sub-losses
     """
 
     velocity, acc, jerk = get_vel_acc_jerk(tgts)
@@ -557,8 +625,8 @@ def add_and_pad(xx, max_len, with_onset_dim=False):
 
     Parameters
     ==========
-    xx : 2D np.array
-        seuence to be padded (seq_length, feeatures)
+    xx : np.array
+        sequence to pad (seq_length, features)
     max_len : int
         maximal length to be padded to
     with_onset_dim : bool
@@ -568,7 +636,7 @@ def add_and_pad(xx, max_len, with_onset_dim=False):
     Returns
     =======
     pad_seq : torch.Tensor
-        2D padded sequence
+        padded sequence (max_len, features)
 
     """
     seq_length = xx.shape[0]
@@ -588,14 +656,14 @@ def pad_batch_online(lens, data_to_pad, device="cpu", with_onset_dim=False):
 
     Parameters
     ==========
-    lens : 1D torch.Tensor
+    lens : 1D torch.tensor
         Tensor containing the length of each sample in data_to_pad of one batch
-    data_to_pad : series
+    data_to_pad : pd.Series
         series containing the data to pad
 
     Returns
     =======
-    padded_data : torch.Tensors
+    padded_data : torch.tensors
         Tensors containing the padded and stacked to one batch
 
     """
@@ -766,7 +834,27 @@ def ges_to_cps(ges_file):
         cps = read_cp(tract_sequence_file_name.decode())
     return cps
 
-def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside =7, calculate="min"):
+def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside=7, calculate="min"):
+    """
+    Extracts the tube area information within the oral cavity for a given number of cm starting from the lips.
+
+    Parameters
+    ==========
+    tube_length : np.array
+        tube length in cm (seq_length, 40 tube segments)
+    tube_area: np.array
+        tube area in cm^2 (seq_length, 40 tube segments)
+    cm_inside: int
+        the number of cm to extend into the oral cavity
+    calculate: str
+        the information to extrect for each cm
+
+    Returns
+    =======
+    section_area_per_time : np.array
+        the extracted area information per time (seq_length, )
+    """
+    
     length_per_time = np.cumsum(tube_length,axis=1)
     section_area_per_time = []
     for t, l in enumerate(length_per_time):

@@ -20,7 +20,6 @@ The general idea works as follows:
        with an actual synthesized version
 """
 
-import pickle
 import random
 import time
 import os
@@ -31,42 +30,28 @@ import numpy as np
 from tqdm import tqdm
 
 import torch
-from torch.distributions.normal import Normal
-from torch.utils import data
 from torch.nn import L1Loss, MSELoss
 import soundfile as sf
 
 # Set seed
-from . import util
-
 torch.manual_seed(20200905)
 random.seed(20200905)
 
 tqdm.pandas()
 
-#from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
-#        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajectory_loss, mel_to_sig,
-#        pad_batch_online, speak_and_extract_tube_information, inv_normalize_tube, normalize_tube, get_area_info_within_oral_cavity)
-
-#from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
-#        MelEmbeddingModelMelSmoothResidualUpsampling, EmbeddingModel, Generator, NonLinearModel)
-
-#from . import visualize
-
 from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajectory_loss, mel_to_sig,
-        pad_batch_online, speak_and_extract_tube_information, inv_normalize_tube, normalize_tube, get_area_info_within_oral_cavity)
+        pad_batch_online, speak_and_extract_tube_information, normalize_tube, get_area_info_within_oral_cavity)
 
-from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
-        MelEmbeddingModelMelSmoothResidualUpsampling, EmbeddingModel, Generator, NonLinearModel)
+from .models import (ForwardModel, InverseModelMelTimeSmoothResidual, EmbeddingModel, Generator, NonLinearModel)
 
 from . import visualize
 
 DIR = os.path.dirname(__file__)
 
 
-PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, pred_model_loss")
-PlanningResultsWithSomatosensory = namedtuple('PlanningResultsWithSomatosensory', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, initial_prod_semvec, initial_pred_semvec, initial_prod_tube_semvec, initial_pred_tube_semvec, prod_semvec, pred_semvec, prod_tube_semvec, pred_tube_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, prod_tube_loss_steps, pred_tube_mel_loss_steps,prod_tube_mel_loss_steps, pred_tube_semvec_loss_steps, prod_tube_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semmvec_steps, pred_tube_semvec_steps, pred_model_loss, tube_model_loss")
+PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss")
+PlanningResultsWithSomatosensory = namedtuple('PlanningResultsWithSomatosensory', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, initial_prod_semvec, initial_pred_semvec, initial_prod_tube_semvec, initial_pred_tube_semvec, prod_semvec, pred_semvec, prod_tube_semvec, pred_tube_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, prod_tube_loss_steps, pred_tube_mel_loss_steps,prod_tube_mel_loss_steps, pred_tube_semvec_loss_steps, prod_tube_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semvec_steps, pred_tube_semvec_steps, pred_model_loss, inv_model_loss, tube_model_loss")
 
 BestSynthesisAcoustic = namedtuple('BestSynthesisAcoustic', "mel_loss, planned_cp, prod_sig, prod_mel, pred_mel")
 BestSynthesisSemantic = namedtuple('BestSynthesisSemantic', "semvec_loss, planned_cp, prod_sig, prod_semvec, pred_semvec")
@@ -104,52 +89,6 @@ def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
                      + loss(jerk4, guiding_factor * jerk4.detach().clone()))
 
     return velocity_loss, jerk_loss
-
-
-
-class HardTanhStraightThrough(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, u):
-        return torch.nn.functional.hardtanh(u)
-
-    @staticmethod
-    def backward(ctx, dx):
-        return dx
-
-def hardtanh_straight_through(u):
-    return HardTanhStraightThrough.apply(u)
-
-
-class SoftsignStraightThrough(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, u):
-        return torch.nn.functional.softsign(u)
-
-    @staticmethod
-    def backward(ctx, dx):
-        return dx
-
-def tanh_straight_through(u):
-    return SoftsignStraightThrough.apply(u)
-
-class TanhStraightThrough(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, u):
-        return torch.nn.functional.tanh(u)
-
-    @staticmethod
-    def backward(ctx, dx):
-        return dx
-
-def tanh_straight_through(u):
-    return TanhStraightThrough.apply(u)
-
-
-
-
 
 
 
@@ -301,10 +240,6 @@ class Paule():
 
 
         # DATA to continue learning
-        # created from geco_embedding_preprocessed_balanced_vectors_checked_extrem_long_removed_valid_matched_prot4
-        # self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
-
-        #self.data = pd.read_pickle(os.path.join(DIR, 'data/continue_data.pkl'))
         self.continue_data = continue_data
         self.continue_data_limit = 1000  # max amount of training data stored in paule instance
 
@@ -339,26 +274,37 @@ class Paule():
 
     def create_epoch_batches(self, df_length, batch_size, shuffle=True, same_size_batching=False, sorted_training_length_keys=None, training_length_dict=None):
         """
-        Create Epoch by batching indices
+        Create Epoch by batching indices of dataset
 
-        :param df_length: int
+        Parameters
+        ==========
+        df_length : int
             total number of samples in training set
-        :param batch_size: int
+        batch_size : int
             number of samples in one batch
-        :param shuffle: bool
+        shuffle : bool
             keep order of training set or random shuffle
-        :param same_size_batching: bool
+        same_size_batching : bool
             create epoch of batches with similar long samples to avoid long padding
-        :return epoch: list of list
+        sorted_training_length_keys : np.array
+            sorted array of unique sequence lengths in training data
+        training_length_dict: dict
+            dictionary keys containing indices of samples with unique sequence lengths in training data and values
+            containing indices of samples with corresponding length
+
+        Returns
+        =======
+        epoch : list of list
             list of lists containing indices for each batch in one epoch
         """
 
-        if same_size_batching and (sorted_training_length_keys is None or training_length_dict is None):
-            raise ValueError("List of unique lengths and dictionary containing indices of samples with corresponding length needed for same_size_batching!")
+        if same_size_batching and training_length_dict is None:
+            raise ValueError("Dictionary containing indices of samples with corresponding length needed for same_size_batching!")
 
         if same_size_batching:
             epoch = []  # list of batches
             foundlings = []  # rest samples for each length which do not fit into one batch
+            sorted_training_length_keys = np.sort(list(training_length_dict.keys())) # sorted unique lengths in training
             for length in sorted_training_length_keys:  # iterate over each unique length in training data
                 length_idxs = training_length_dict[length]  # dictionary containing indices of samples with length
                 rest = len(length_idxs) % batch_size
@@ -409,7 +355,7 @@ class Paule():
                      n_outer=5, n_inner=24,
                      continue_learning=True,
                      continue_learning_inv=False,
-                     continue_learning_tube=True,
+                     continue_learning_tube=False,
                      add_training_data_pred=False,
                      add_training_data_inv=False,
                      n_batches=3, batch_size=8, n_epochs=10,
@@ -430,6 +376,8 @@ class Paule():
             learning rate for updating cps
         learning_rate_learning : float
             learning rate for updating predictive model
+        learning_rate_learning_inv: float
+            learning rate for updating inverse model
         target_acoustic : str
             (target_sig, target_sr)
         target_semvec : torch.tensor
@@ -445,8 +393,20 @@ class Paule():
         n_inner : int (100)
         continue_learning : bool (True)
             update predictive model with synthesized acoustics
-        add_training_data : bool (False)
-            update solely on produced acoustics during training or add training data
+        continue_learning_inv : bool (False)
+            update inverse model
+        continue_learning_tube : bool (False),
+             update tube model with tube information after synthesizing acoustics
+        add_training_data_pred : bool (False)
+            update predictive model solely on produced acoustics during training or add training data
+        add_training_data_inv : bool (False)
+            update inverse model solely on produced acoustics during training or add training data
+        n_batches : int
+            number of batches to train on
+        batch_size : int
+            number of samples in one batch
+        n_epochs : int
+            number of epochs to train on with number of batches
         log_ii : int
             log results and synthesize audio after ii number of inner iterations
         plot : bool  or str (False)
@@ -466,11 +426,11 @@ class Paule():
 
         if learning_rate_learning:
             for param_group in self.pred_optimizer.param_groups:
-                param_group['lr'] = learning_rate_learning
+                param_group['lr'] = learning_rate_learning # set learning rate
 
         if learning_rate_learning_inv:
             for param_group in self.inv_optimizer.param_groups:
-                param_group['lr'] = learning_rate_learning_inv
+                param_group['lr'] = learning_rate_learning_inv # set learning rate
 
         if log_ii is None:
             log_ii = n_inner
@@ -571,7 +531,6 @@ class Paule():
             if self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_tube_mel, pred_tube_semvec):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    # mel_loss_w, time_loss,channel_loss,energy_loss = mel_w_loss(pred_mel,target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
@@ -586,7 +545,6 @@ class Paule():
             else:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    # mel_loss_w, time_loss,channel_loss,energy_loss = mel_w_loss(pred_mel,target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     velocity_loss = 2 * velocity_loss
@@ -599,7 +557,6 @@ class Paule():
             if self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, cps, pred_tube_mel):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    # mel_loss_w, time_loss,channel_loss,energy_loss = mel_w_loss(pred_mel,target_mel)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     velocity_loss = 2 * velocity_loss
@@ -610,7 +567,6 @@ class Paule():
             else:
                 def criterion(pred_mel, target_mel, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    # mel_loss_w, time_loss,channel_loss,energy_loss = mel_w_loss(pred_mel,target_mel)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     velocity_loss = 2 * velocity_loss
                     jerk_loss = 2 * jerk_loss
@@ -659,6 +615,7 @@ class Paule():
         pred_mel_steps = list()
         prod_mel_steps = list()
         pred_model_loss = list()
+        inv_model_loss = list()
 
         optimizer = torch.optim.Adam([xx_new], lr=learning_rate_planning)
 
@@ -678,6 +635,7 @@ class Paule():
 
             tube_model_loss = list()
 
+
         # initial results
         with torch.no_grad():
             initial_pred_mel = self.pred_model(xx_new)
@@ -693,18 +651,12 @@ class Paule():
 
             initial_sig, initial_sr, initial_tube_info = speak_and_extract_tube_information(inv_normalize_cp(xx_new_numpy))
 
-            #initial_prod_tube = np.concatenate([initial_tube_info["tube_area_cm2"],
-            #                                    initial_tube_info["tube_length_cm"],
-            #                                    np.expand_dims(initial_tube_info["incisor_pos_cm"],axis=1),
-            #                                    np.expand_dims(initial_tube_info["tongue_tip_side_elevation"],axis=1),
-            #                                    np.expand_dims(initial_tube_info["velum_opening_cm2"],axis=1)],axis=1)
             area_within_oral_cavity = get_area_info_within_oral_cavity(initial_tube_info["tube_length_cm"], initial_tube_info["tube_area_cm2"])
             initial_prod_tube = np.concatenate([area_within_oral_cavity,
                                                 np.expand_dims(initial_tube_info["incisor_pos_cm"],axis=1),
                                                 np.expand_dims(initial_tube_info["tongue_tip_side_elevation"],axis=1),
                                                 np.expand_dims(initial_tube_info["velum_opening_cm2"],axis=1)],axis=1)
             initial_prod_tube = normalize_tube(initial_prod_tube)
-            #initial_prod_tube = util.half_seq_by_average_pooling(initial_prod_tube)
 
             initial_prod_tube.shape = initial_pred_tube.shape
             initial_prod_tube = torch.from_numpy(initial_prod_tube)
@@ -909,44 +861,6 @@ class Paule():
                 if xx_new.grad.min() < -10:
                     if verbose:
                         print("WARNING: gradient is smaller than -10")
-                """
-                print("")
-                print("Pred Model Gradients")
-                print(list(self.pred_model.parameters())[0].grad.max())
-                print(list(self.pred_model.parameters())[0].grad.min())
-                print("")
-                print("Tube Mel Model Gradients")
-                print(list(self.tube_mel_model.parameters())[0].grad.max())
-                print(list(self.tube_mel_model.parameters())[0].grad.min())
-                print("")
-                print("CP Tube Model Gradients")
-                print(list(self.cp_tube_model.parameters())[0].grad.max())
-                print(list(self.cp_tube_model.parameters())[0].grad.min())
-                print("")
-                #xx_new.grad.data = xx_new.grad.data.clamp_(-0.1, 0.1)
-                #torch.nn.utils.clip_grad_norm_(self.cp_tube_model.parameters(), 1)
-                #torch.nn.utils.clip_grad_value_(self.cp_tube_model.parameters(), 1)
-
-                #print("CP Tube Model Gradients")
-                #print(list(self.cp_tube_model.parameters())[0].grad.max())
-                #print(list(self.cp_tube_model.parameters())[0].grad.min())
-
-                print("")
-                print("Pred Tube Gradients")
-                print(pred_tube.grad.max())
-                print(pred_tube.grad.min())
-
-                print("")
-                print("XX_new Gradients")
-                print(xx_new.grad.max())
-                print(xx_new.grad.min())
-
-                #torch.nn.utils.clip_grad_norm_(xx_new.parameters(), 1)
-                #print("")
-                #print("XX_new Gradients Clipped")
-                #print(xx_new.grad.max())
-                #print(xx_new.grad.min())
-                """
 
                 if log_gradients:
                     grad_steps.append(xx_new.grad.detach().clone())
@@ -957,18 +871,12 @@ class Paule():
 
                     if self.use_somatosensory_feedback:
                         sig, sr, tube_info = speak_and_extract_tube_information(inv_normalize_cp(xx_new_numpy))
-                        #prod_tube = np.concatenate([tube_info["tube_area_cm2"],
-                        #                        tube_info["tube_length_cm"],
-                        #                        np.expand_dims(tube_info["incisor_pos_cm"],axis=1),
-                        #                        np.expand_dims(tube_info["tongue_tip_side_elevation"],axis=1),
-                        #                        np.expand_dims(tube_info["velum_opening_cm2"],axis=1)],axis=1)
                         area_within_oral_cavity = get_area_info_within_oral_cavity(tube_info["tube_length_cm"], tube_info["tube_area_cm2"])
                         prod_tube = np.concatenate([area_within_oral_cavity,
                                                 np.expand_dims(tube_info["incisor_pos_cm"], axis=1),
                                                 np.expand_dims(tube_info["tongue_tip_side_elevation"], axis=1),
                                                 np.expand_dims(tube_info["velum_opening_cm2"],axis=1)], axis=1)
                         prod_tube = normalize_tube(prod_tube)
-                        #prod_tube = util.half_seq_by_average_pooling(prod_tube)
                         prod_tube_steps_ii.append(prod_tube.copy())
                         prod_tube.shape = pred_tube.shape
                         prod_tube = torch.from_numpy(prod_tube)
@@ -1079,17 +987,10 @@ class Paule():
                 optimizer.step()
 
                 with torch.no_grad():
-                    # xx_new.data = torch.maximum(-1*torch.ones_like(xx_new),
-                    # torch.minimum(torch.ones_like(xx_new),
-                    #              xx_new.data - learning_rate * xx_new.grad))
-                    # xx_new.data = (xx_new.data - learning_rate * xx_new.grad)
-                    # xx_new.data = (xx_new.data - learning_rate * xx_new.grad).clamp(-1,1)
                     xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
                     if not past_cp is None:
                         xx_new.data[:, 0:past_cp_torch.shape[0], :] = past_cp_torch
 
-
-                #xx_new.grad.zero_()
 
             if plot:
                 target_mel_ii = target_mel[-1, :, :].detach().cpu().numpy().copy()
@@ -1132,14 +1033,22 @@ class Paule():
 
                 if add_training_data_pred or add_training_data_inv:
                     # update with new sample
-                    if len(produced_data_ii) < int(0.5 * batch_size) * n_batches:
-                        batch_train_new = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
-                        batch_train = random.sample(range(len(self.continue_data)),
-                                                    k=batch_size * n_batches - len(produced_data_ii))
-
+                    if len(produced_data_ii) < int(0.5 * batch_size) * n_batches: # too few samples synthesized for filling 50% of batch_size * n_batches
+                        batch_train_produced = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
+                        batch_train = random.sample(range(len(self.continue_data)), k=len(produced_data_ii))
+                        n_train_batches = int(np.ceil(2*len(produced_data_ii)/batch_size))
+                        reduced_last_batch = (2*len(produced_data_ii))%batch_size
+                        print("Enhanced training data")
+                        print(f"Not enough data produced to fill 50% of {n_batches} batches...")
+                        if n_train_batches < n_batches:
+                            print(f"Training on {n_train_batches} batches instead...")
+                        if reduced_last_batch > 0:
+                            print(f"Last batch reduced to {reduced_last_batch} samples instead of {batch_size}...")
+                        print(" ")
                     else:
                         batch_train = random.sample(range(len(self.continue_data)), k=int(0.5 * batch_size) * n_batches)
-                        batch_train_new = random.sample(range(len(produced_data_ii)), k=int(0.5 * batch_size) * n_batches)
+                        batch_train_produced = random.sample(range(len(produced_data_ii)), k=int(0.5 * batch_size) * n_batches)
+                        n_train_batches = n_batches
 
                     if self.use_somatosensory_feedback:
                         train_data_samples = self.continue_data[['vector','cp_norm', 'melspec_norm_synthesized', 'tube_norm','segment_data']].iloc[
@@ -1148,52 +1057,32 @@ class Paule():
                         train_data_samples = self.continue_data[['vector', 'cp_norm', 'melspec_norm_synthesized', 'segment_data']].iloc[
                             batch_train].reset_index(drop=True)
 
-                    produced_data_ii_samples = produced_data_ii.iloc[batch_train_new].reset_index(drop=True)
+                    produced_data_ii_samples = produced_data_ii.iloc[batch_train_produced].reset_index(drop=True)
                     continue_data_ii = pd.concat([train_data_samples, produced_data_ii_samples])
 
-                    # ensure in each batch same amount new and old samples if possible
-                    # continue_data.sort_index(inplace=True)
-                    # sort by length
+
                     continue_data_ii["lens_input"] = np.array(continue_data_ii["cp_norm"].apply(len), dtype=int)
-                    continue_data_ii["lens_output"] = np.array(continue_data_ii["melspec_norm_synthesized"].apply(len),
-                                                            dtype=int)
+                    continue_data_ii["lens_output"] = np.array(continue_data_ii["melspec_norm_synthesized"].apply(len),dtype=int)
                     continue_data_ii.sort_values(by="lens_input", inplace=True)
+
+                    del train_data_samples
+
+                if len(produced_data_ii) <  batch_size * n_batches: # too few samples synthesized for filling batch_size * n_batches
+                    batch_train_produced = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
+                    n_train_batches = int(np.ceil(len(produced_data_ii)/batch_size))
+                    reduced_last_batch = len(produced_data_ii)%batch_size
+                    print("Produced training data")
+                    print(f"Not enough data produced to fill {n_batches} batches...")
+                    if n_train_batches < n_batches:
+                        print(f"Training on {n_train_batches} batches instead...")
+                    if reduced_last_batch > 0:
+                        print(f"Last batch reduced to {reduced_last_batch} samples instead of {batch_size}...")
+                    print(" ")
+                else:
+                    batch_train_produced = random.sample(range(len(produced_data_ii)), k= batch_size * n_batches)
                     n_train_batches = n_batches
 
-
-                batch_train_new = random.sample(range(len(produced_data_ii)), k=len(produced_data_ii))
-                produced_data_ii_samples = produced_data_ii.iloc[batch_train_new].copy()
-
-                if len(produced_data_ii_samples) < batch_size * n_batches:
-                    # rolling batching (fill one more batch with already seen samples)
-                    full_batches = len(produced_data_ii_samples) // batch_size
-                    samples_to_fill_batch = int(abs(len(produced_data_ii_samples) - batch_size * full_batches + 1))
-                    if samples_to_fill_batch > 0:
-                        fill_data = produced_data_ii_samples.iloc[:samples_to_fill_batch].copy()
-                        produced_data_ii_samples = pd.concat([produced_data_ii_samples, fill_data])
-                        if verbose:
-                            print("Not enough data produced...Training on %d instead of %d batches!" % (
-                            (full_batches + 1), n_batches))
-                            if len(produced_data_ii_samples) % batch_size > 0:
-                                print("Reduced last batch...Batchsize %d instead of %d!" % (
-                                (len(produced_data_ii_samples) % batch_size), batch_size))
-
-                        n_train_batches = full_batches + 1
-
-                    else:
-                        #continue_data_ii = produced_data_samples.copy()
-                        print("Not enough produced data...Training on %d instead of %d batches!" % (
-                        (full_batches + 1), n_batches))
-                        n_train_batches = full_batches
-                #else:
-                #    continue_data_ii = produced_data_samples.copy()
-                #    n_train_batches = n_batches
-
-                #continue_data_ii["lens_input"] = np.array(continue_data_ii["cp_norm"].apply(len), dtype=int)
-                #continue_data_ii["lens_output"] = np.array(continue_data_ii["melspec_norm_synthesized"].apply(len),
-                #                                        dtype=int)
-                #continue_data_ii.sort_values(by="lens_input", inplace=True)
-
+                produced_data_ii_samples = produced_data_ii.iloc[batch_train_produced].reset_index(drop=True)
                 produced_data_ii_samples["lens_input"] = np.array(produced_data_ii_samples["cp_norm"].apply(len), dtype=int)
                 produced_data_ii_samples["lens_output"] = np.array(produced_data_ii_samples["melspec_norm_synthesized"].apply(len),
                                                            dtype=int)
@@ -1205,7 +1094,7 @@ class Paule():
                     training_data_pred = produced_data_ii_samples
 
                 training_length_dict_pred = {}
-                lens_training_cps_pred = np.asarray(training_data_pred.cp_norm.apply(len))
+                lens_training_cps_pred = np.asarray(training_data_pred.lens_input)
                 lengths, counts = np.unique(lens_training_cps_pred, return_counts=True)
                 sorted_training_length_keys_pred = np.sort(lengths)
                 for length in sorted_training_length_keys_pred:
@@ -1228,7 +1117,7 @@ class Paule():
                         training_data_inv = produced_data_ii_samples
 
                     training_length_dict_inv = {}
-                    lens_training_cps_inv = np.asarray(training_data_inv.cp_norm.apply(len))
+                    lens_training_cps_inv = np.asarray(training_data_inv.lens_input)
                     lengths, counts = np.unique(lens_training_cps_inv, return_counts=True)
                     sorted_training_length_keys_inv = np.sort(lengths)
                     for length in sorted_training_length_keys_inv:
@@ -1245,21 +1134,12 @@ class Paule():
                 for e in range(n_epochs):
                     epoch_ii = self.create_epoch_batches(training_data_pred, batch_size, shuffle=True,
                                                          same_size_batching=True,
-                                                         sorted_training_length_keys=sorted_training_length_keys_pred,
                                                          training_length_dict=training_length_dict_pred)
                     avg_loss = list()
                     if continue_learning_tube & self.use_somatosensory_feedback:
                         avg_loss_tube = list()
-                    #for j in range(n_train_batches):
+
                     for j in epoch_ii:
-                        #lens_input_j = lens_input[j * batch_size:(j * batch_size) + batch_size]
-                        #batch_input = inps.iloc[j * batch_size:(j * batch_size) + batch_size]
-                        #batch_input = pad_batch_online(lens_input_j, batch_input, self.device)
-
-                        #lens_output_j = lens_output[j * batch_size:(j * batch_size) + batch_size]
-                        #batch_output = tgts.iloc[j * batch_size:(j * batch_size) + batch_size]
-                        #batch_output = pad_batch_online(lens_output_j, batch_output, self.device)
-
                         lens_input_j = lens_input[j]
                         batch_input = inps.iloc[j]
                         batch_input = pad_batch_online(lens_input_j, batch_input, self.device)
@@ -1279,9 +1159,6 @@ class Paule():
                         avg_loss.append(float(pred_loss.item()))
 
                         if self.use_somatosensory_feedback & continue_learning_tube:
-                            #lens_output_tube_j = lens_output_tube[j * batch_size:(j * batch_size) + batch_size]
-                            #batch_output_tube = tgts_tube.iloc[j * batch_size:(j * batch_size) + batch_size]
-                            #batch_output_tube = pad_batch_online(lens_output_tube_j, batch_output_tube, self.device)
                             lens_output_tube_j = lens_output_tube[j]
                             batch_output_tube = tgts_tube.iloc[j]
                             batch_output_tube = pad_batch_online(lens_output_tube_j, batch_output_tube, self.device)
@@ -1304,7 +1181,6 @@ class Paule():
                     for e in range(n_epochs):
                         epoch_ii = self.create_epoch_batches(training_data_inv, batch_size, shuffle=True,
                                                              same_size_batching=True,
-                                                             sorted_training_length_keys=sorted_training_length_keys_inv,
                                                              training_length_dict=training_length_dict_inv)
                         avg_loss_inv = list()
                         for j in epoch_ii:
@@ -1328,19 +1204,22 @@ class Paule():
 
                             avg_loss_inv.append(float(inv_loss.item()))
 
+                        inv_model_loss.append(np.mean(avg_loss_inv))
+
+
                 if not self.continue_data is None:
                     self.continue_data = pd.concat([self.continue_data, produced_data_ii]).reset_index(drop=True)
                     if len(self.continue_data) > self.continue_data_limit:
-                        random_sample = random.sample(range(len(self.continue_data)), self.continue_data_limit)
+                        random_sample = random.sample(range(len(self.continue_data)), k=self.continue_data_limit)
                         self.continue_data = self.continue_data.iloc[random_sample].reset_index(drop=True)
 
                 del produced_data_ii_samples
-                del train_data_samples
-                del continue_data_ii
                 del produced_data_ii
                 del training_data_pred
                 if continue_learning_inv:
                     del training_data_inv
+                if add_training_data_pred or add_training_data_inv:
+                    del continue_data_ii
 
         planned_cp = xx_new[-1, :, :].detach().cpu().numpy()
         prod_sig = sig
@@ -1410,6 +1289,7 @@ class Paule():
         # 30. prod_mel_steps
         # 31. pred_mel_steps
         # 32. pred_model_loss
+        # 33. inv_model_loss
 
         if self.use_somatosensory_feedback:
             return PlanningResultsWithSomatosensory(planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel,
@@ -1419,7 +1299,7 @@ class Paule():
                                    planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
                                    pred_semvec_loss_steps, prod_semvec_loss_steps, prod_tube_loss_steps, pred_tube_mel_loss_steps, prod_tube_mel_loss_steps, pred_tube_semvec_loss_steps, prod_tube_semvec_loss_steps, cp_steps,
                                    pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
-                                   prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semvec_steps, pred_tube_semvec_steps, pred_model_loss, tube_model_loss)
+                                   prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semvec_steps, pred_tube_semvec_steps, pred_model_loss, inv_model_loss, tube_model_loss)
 
         else:
             return PlanningResults(planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel,
@@ -1428,5 +1308,5 @@ class Paule():
                     planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
                     pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
                     pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
-                    prod_mel_steps, pred_mel_steps, pred_model_loss)
+                    prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss)
 
