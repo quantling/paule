@@ -86,19 +86,29 @@ def visualize_results(results, condition='prefix', folder='data'):
     if not os.path.exists(path):
         os.mkdir(path)
     util.export_svgs(util.inv_normalize_cp(results.initial_cp), path=path)
-    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_initial.flac ../{condition}_initial.mp4'
+    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 768 -i tract%05d.svg -i ../{condition}_initial.flac -c:v libx264 -pix_fmt yuv420p ../{condition}_initial_80Hz.mp4'
     return_value = os.system(system_call)
     if return_value != 0:
         print("WARNING: creating the initial animation went wrong")
+    ## recode to 60 Hz
+    #system_call = f'cd {path}; /usr/bin/ffmpeg -loglevel error -i ../{condition}_initial_80Hz.mp4 -r 60 ../{condition}_initial_60Hz.mp4'
+    #return_value = os.system(system_call)
+    #if return_value != 0:
+    #    print("WARNING: creating the initial animation went wrong")
 
     path = f"{base_name}_planned_svgs/"
     if not os.path.exists(path):
         os.mkdir(path)
     util.export_svgs(util.inv_normalize_cp(results.planned_cp), path=path)
-    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 600 -i tract%05d.svg -i ../{condition}_planned.flac ../{condition}_planned.mp4'
+    system_call = f'cd {path}; /usr/bin/ffmpeg -hide_banner -loglevel error -r 80 -width 768 -i tract%05d.svg -i ../{condition}_planned.flac -c:v libx264 -pix_fmt yuv420p ../{condition}_planned_80Hz.mp4'
     return_value = os.system(system_call)
     if return_value != 0:
         print("WARNING: creating the planning animation went wrong")
+    ## recode to 60 Hz
+    #system_call = f'cd {path}; /usr/bin/ffmpeg -loglevel error -i ../{condition}_planned_80Hz.mp4 -r 60 ../{condition}_planned_60Hz.mp4'
+    #return_value = os.system(system_call)
+    #if return_value != 0:
+    #    print("WARNING: creating the planned animation went wrong")
 
     plt.show()  # this shows all saved figures
 

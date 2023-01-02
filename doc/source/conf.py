@@ -44,7 +44,7 @@ extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
     'numpydoc',
-    'easydev.copybutton',
+    'sphinx_copybutton',
     ]
 
 if os.path.isdir('_static') == False:

@@ -115,7 +115,7 @@ class Paule():
         else:
             self.pred_model = ForwardModel(num_lstm_layers=1, hidden_size=720).double()
             self.pred_model.load_state_dict(
-                torch.load(os.path.join(DIR, "pretrained_models/predictive/pred_model_common_voice_1_720_lr_0001_50_00001_100.pt"),
+                torch.load(os.path.join(DIR, "pretrained_models/predictive/pred_model_common_voice_1_720_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
                            map_location=self.device))
             # Non-Linear Perceptron PREDictive MODEL
             #self.pred_model = NonLinearModel(input_channel=30, output_channel=60,
@@ -136,7 +136,7 @@ class Paule():
         else:
             self.inv_model = InverseModelMelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).double()
             self.inv_model.load_state_dict(
-                torch.load(os.path.join(DIR, "pretrained_models/inverse/inv_model_common_voice_3_1_720_5_lr_0001_50_00001_100.pt"),
+                torch.load(os.path.join(DIR, "pretrained_models/inverse/inv_model_common_voice_3_1_720_5_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
                            map_location=self.device))
             # Non-Linear Perceptron INVerse MODEL
             #self.inv_model = NonLinearModel(input_channel=60, output_channel=30,

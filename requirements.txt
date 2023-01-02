@@ -6,3 +6,4 @@ noisereduce
 librosa
 tqdm
 matplotlib
+requests

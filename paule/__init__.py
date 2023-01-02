@@ -12,20 +12,28 @@ implemented in pytorch and pretrained weights are available.
 
 """
 
-print("WARNING! The *paule* package is still in alpha and the package does not "
-      "contain all the files you need to execute the functions defined here. "
-      "We are working on a good way to distribute the pretrained weights and "
-      "data without making the package big.")
+print("WARNING! The *paule* package is still in alpha. "
+      "To download pretrained weights for the PAULE model, which is defined in "
+      "`paule.paule.Paule`, you can invoke "
+      "`paule.util.download_pretrained_weights()`.")
 
 import os
 import sys
 import multiprocessing as mp
 from pip._vendor import pkg_resources
+try:
+    from importlib.metadata import requires
+except ModuleNotFoundError:  # python 3.7 and before
+    requires = None
+try:
+    from packaging.requirements import Requirement
+except ModuleNotFoundError:  # this should only happend during setup phase
+    Requirement = None
 
 
 __author__ = 'Konstantin Sering, Paul Schmidt-Barbo'
 __author_email__ = 'konstantin.sering@uni-tuebingen.de'
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 __license__ = 'GPLv3+'
 __description__ = ('paule - Predictive Articulatory speech synthesis Utilizing Lexical Embeddings')
 __classifiers__ = [
@@ -35,6 +43,7 @@ __classifiers__ = [
     'License :: OSI Approved :: GNU General Public License (GPL)',
     'Operating System :: POSIX :: Linux',
     'Operating System :: MacOS',
+    'Operating System :: Microsoft :: Windows',
     'Programming Language :: Python',
     'Programming Language :: Python :: 3.6',
     'Programming Language :: Python :: 3.7',
@@ -49,10 +58,10 @@ __classifiers__ = [
 def sysinfo():
     """
     Prints system the dependency information
-
     """
-    paule = pkg_resources.working_set.by_key["paule"]
-    dependencies = [r.project_name for r in paule.requires()]
+    if requires:
+        dependencies = [Requirement(req).name for req in requires('paule')
+                        if not Requirement(req).marker]
 
     header = ("Paule Information\n"
               "=================\n\n")
@@ -62,14 +71,14 @@ def sysinfo():
                "Python version: {}\n"
                "Paule version: {}\n\n").format(sys.version.split()[0], __version__)
 
-    uname = os.uname()
+    uname = platform.uname()
     osinfo = ("Operating System\n"
               "----------------\n"
-              "OS: {s.sysname} {s.machine}\n"
+              "OS: {s.system} {s.machine}\n"
               "Kernel: {s.release}\n"
               "CPU: {cpu_count}\n").format(s=uname, cpu_count=mp.cpu_count())
 
-    if uname.sysname == "Linux":
+    if uname.system == "Linux":
         _, *lines = os.popen("free -m").readlines()
         for identifier in ("Mem:", "Swap:"):
             memory = [line for line in lines if identifier in line]
@@ -84,7 +93,11 @@ def sysinfo():
     deps = ("Dependencies\n"
             "------------\n")
 
-    deps += "\n".join("{pkg.__name__}: {pkg.__version__}".format(pkg=__import__(dep))
-                      for dep in dependencies)
+    if requires:
+        deps += "\n".join("{pkg.__name__}: {pkg.__version__}".format(pkg=__import__(dep))
+                          for dep in dependencies)
+    else:
+        deps = 'You need Python 3.8 or higher to show dependencies.'
 
     print(header + general + osinfo + deps)
+

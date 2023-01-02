@@ -1,13 +1,17 @@
 import ctypes
+import io
 import os
+import shutil
 import sys
 import tempfile
+import zipfile
 
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
 import torch.nn
 import pandas as pd
+import requests
 
 DIR = os.path.dirname(__file__)
 _FILE_ENDING = ''
@@ -874,3 +878,23 @@ def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside=7, calcul
                 raise Exception(f"calculate must be one of ['raw', 'mean', 'binary', 'min']")
         section_area_per_time += [section_area]
     return np.asarray(section_area_per_time)
+
+
+def download_pretrained_weights(*, skip_if_exists=True, verbose=True):
+    package_path = DIR
+    model_weights_path = os.path.join(package_path, 'pretrained_models')
+    if os.path.isdir(model_weights_path):
+        if skip_if_exists:
+            if verbose:
+                print(f"pretrained_models exist already. Skip download. Path is {model_weights_path}")
+            return
+        shutil.rmtree(model_weights_path)
+
+    zip_file_url = "https://nc.mlcloud.uni-tuebingen.de/index.php/s/N4nik8wgxwQHP83/download"
+    if verbose:
+        print(f"downloading 114 MB of pretrained weights from {zip_file_url}")
+        print(f"saving pretrained weights to {model_weights_path}")
+    stream = requests.get(zip_file_url, stream=True)
+    zip_file = zipfile.ZipFile(io.BytesIO(stream.content))
+    zip_file.extractall(package_path)
+
