@@ -24,8 +24,6 @@ classifiers = ['Development Status :: 3 - Alpha',
                'Topic :: Scientific/Engineering :: Artificial Intelligence',
                'Topic :: Scientific/Engineering :: Information Analysis',]
 
-build = "build.py"
-
 [tool.poetry.dependencies]
 python = ">=3.8,<3.12"  # Compatible python versions must be declared here
 numpy = "^1.23.1"
