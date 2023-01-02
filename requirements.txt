@@ -1,9 +1,0 @@
-torch>=1.7.0
-numpy
-pandas
-soundfile
-noisereduce
-librosa
-tqdm
-matplotlib
-requests

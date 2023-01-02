@@ -30,29 +30,12 @@ try:
 except ModuleNotFoundError:  # this should only happend during setup phase
     Requirement = None
 
-
-__author__ = 'Konstantin Sering, Paul Schmidt-Barbo'
-__author_email__ = 'konstantin.sering@uni-tuebingen.de'
-__version__ = '0.3.0'
-__license__ = 'GPLv3+'
-__description__ = ('paule - Predictive Articulatory speech synthesis Utilizing Lexical Embeddings')
-__classifiers__ = [
-    'Development Status :: 3 - Alpha',
-    'Environment :: Console',
-    'Intended Audience :: Science/Research',
-    'License :: OSI Approved :: GNU General Public License (GPL)',
-    'Operating System :: POSIX :: Linux',
-    'Operating System :: MacOS',
-    'Operating System :: Microsoft :: Windows',
-    'Programming Language :: Python',
-    'Programming Language :: Python :: 3.6',
-    'Programming Language :: Python :: 3.7',
-    'Programming Language :: Python :: 3.8',
-    'Programming Language :: Python :: 3 :: Only',
-    'Topic :: Scientific/Engineering',
-    'Topic :: Scientific/Engineering :: Artificial Intelligence',
-    'Topic :: Scientific/Engineering :: Information Analysis',
-    ]
+try:
+    from importlib import metadata
+    __version__ = metadata.version(__package__)
+except metadata.PackageNotFoundError:
+    import toml
+    __version__ = toml.load("pyproject.toml")["tool"]["poetry"]["version"] + "dev"
 
 
 def sysinfo():

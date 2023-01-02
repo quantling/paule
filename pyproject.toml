@@ -1,0 +1,66 @@
+[tool.poetry]
+name = "paule"
+version = "0.3.0"
+description = ""
+
+license = "GPLv3+"
+
+authors = ["Konstantin Sering <konstantin.sering@uni-tuebingen.de>",
+           "Paul Schmidt-Barbo"
+           ]
+
+readme = "README.rst"  # Markdown files are supported
+
+repository = "https://github.com/quantling/paule"
+homepage = "https://paule.readthedocs.io/en/latest/"
+
+classifiers = ['Development Status :: 3 - Alpha',
+               'Environment :: Console',
+               'Intended Audience :: Science/Research',
+               'Operating System :: POSIX :: Linux',
+               'Operating System :: MacOS',
+               'Operating System :: Microsoft :: Windows',
+               'Topic :: Scientific/Engineering',
+               'Topic :: Scientific/Engineering :: Artificial Intelligence',
+               'Topic :: Scientific/Engineering :: Information Analysis',]
+
+build = "build.py"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.12"  # Compatible python versions must be declared here
+numpy = "^1.23.1"
+pandas = "^1.4.3"
+soundfile = "^0.11.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+pytest-cov = "^2.4"
+pydocstyle = "^6.1.1"
+flake8 = "^4.0.1"
+sphinx = "^1.4"
+sphinx_rtd_theme = "^1.0.0"
+notebook = "^6.4.10"
+seaborn = "^0.12.1"
+numpydoc = "^1.2"
+sphinx-copybutton = "^0.5.1"
+pylint = "^2.0.0"
+nbsphinx = "^0.8.8"
+vulture = "^2.3"
+Jinja2 = "<3.1.0"
+
+[tool.pytest.ini_options]
+addopts = '--doctest-glob "*.rst"'
+
+[tool.pylint]
+  [tool.pylint.basic]
+  good-names = ["nn", "ii", "_", "jj", "df"]
+
+  [tool.pylint.format]
+  max-line-length = 120
+
+  [tool.pylint.message_control]
+  disable = "E1101"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.masonry.api"
