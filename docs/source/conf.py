@@ -22,7 +22,6 @@ import os
 import shutil
 import time
 
-import easydev
 # sys.path.insert(0, os.path.abspath('.'))
 
 
@@ -50,10 +49,6 @@ extensions = ['sphinx.ext.autodoc',
 if os.path.isdir('_static') == False:
     os.mkdir('_static')
 
-# Add copy button
-jscopybutton_path = easydev.copybutton.get_copybutton_path()
-shutil.copy(jscopybutton_path, '_static')
-
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -69,8 +64,8 @@ master_doc = 'index'
 # General information about the project.
 pkg = __import__('paule')
 project = 'paule'
-author =  pkg.__author__
-copyright = time.strftime('2021 - %Y ') + pkg.__author__
+author =  "Konstantin Sering & Paul Schmidt-Barbo"
+copyright = time.strftime('2021 - %Y ') + author
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
