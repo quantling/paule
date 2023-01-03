@@ -1,8 +1,10 @@
 *.sw[po]
 paule/pretrained_models/
 paule/data/
-doc/build/
+docs/build/
 paule.egg-info/
 paule/__pycache__/
+tests/__pycache__/
 dist/
 paule/.ipynb_checkpoints/
+poetry.lock
