@@ -19,6 +19,9 @@ target_acoustic = 'frohes_neues_jahr.flac'
 
 SAVE_DIR = 'results'
 
+if not os.path.isdir(SAVE_DIR):
+    os.mkdir(SAVE_DIR)
+
 save_file = SAVE_DIR + '/' + target_acoustic[:-4]
 
 #past_cp = np.load('past_cp.npy')
