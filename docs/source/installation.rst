@@ -8,7 +8,8 @@ from `pypi <https://pypi.python.org/pypi>`_ with:
    pip install --user paule
 
 
-Install all dependencies with poetry (https://python-poetry.org/)
+Alternatively, install all dependencies with poetry
+(https://python-poetry.org/):
 
 .. code:: bash
 

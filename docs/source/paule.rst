@@ -6,12 +6,12 @@ Package overview
 Submodules
 ----------
 
-.. automodule:: paule.grad_plan
+.. automodule:: paule.paule
     :members:
     :undoc-members:
     :show-inheritance:
 
-.. automodule:: paule.models
+.. .. automodule:: paule.models
     :members:
     :undoc-members:
     :show-inheritance:

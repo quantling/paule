@@ -11,5 +11,5 @@
    installation
    development
    paule
-   about
+   credits
 
