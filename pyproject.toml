@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "paule"
-version = "0.3.0"
-description = ""
+version = "0.3.1"
+description = "paule implements the Predictive Articulatory speech synthesis model Utilizing Lexical Embeddings (PAULE), which is a control model for the articulatory speech synthesizer VocalTractLab (VTL)."
 
 license = "GPLv3+"
 
@@ -29,6 +29,11 @@ python = ">=3.8,<3.12"  # Compatible python versions must be declared here
 numpy = "^1.23.1"
 pandas = "^1.4.3"
 soundfile = "^0.11.0"
+tqdm = "^4.64.1"
+torch = "^1.13.1"
+llvmlite = "^0.39.1"
+librosa = "^0.9.2"
+numba = "^0.56.4"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.0"

@@ -435,7 +435,8 @@ class Paule():
         if log_ii is None:
             log_ii = n_inner
 
-        assert log_ii <= n_inner, 'results can only be logged between first and last planning step'
+        if log_ii > n_inner:
+            raise ValueError('results can only be logged between first and last planning step')
 
         if isinstance(target_acoustic, str):
             target_sig, target_sr = sf.read(target_acoustic)
@@ -506,8 +507,10 @@ class Paule():
                 raise ValueError("initialize_from has to be either 'acoustic' or 'semvec'")
 
         else:
-            assert initial_cp.shape[0] == target_mel.shape[
-                1] * 2, f"initial_cp {initial_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}"
+            if initialize_from is not None:
+                raise ValueError('one of initial_cp and initialize_from has to be None')
+            if not initial_cp.shape[0] == (target_mel.shape[1] * 2):
+                raise ValueError(f"initial_cp {initial_cp.shape[0]}, target_mel {target_mel.shape[1] * 2}")
 
         if not past_cp is None and past_cp.shape[0] % 2 != 0:
             raise ValueError("past_cp have to be None or the sequence length has to be an even number")
