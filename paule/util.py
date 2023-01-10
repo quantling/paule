@@ -838,7 +838,8 @@ def ges_to_cps(ges_file):
         cps = read_cp(tract_sequence_file_name.decode())
     return cps
 
-def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside=7, calculate="min"):
+
+def get_area_info_within_oral_cavity(tube_length, tube_area, *, cm_inside=7, calculate="min"):
     """
     Extracts the tube area information within the oral cavity for a given number of cm starting from the lips.
 
@@ -858,14 +859,18 @@ def get_area_info_within_oral_cavity(tube_length, tube_area, cm_inside=7, calcul
     section_area_per_time : np.array
         the extracted area information per time (seq_length, )
     """
-    
-    length_per_time = np.cumsum(tube_length,axis=1)
+    length_per_time = np.cumsum(tube_length, axis=1)
     section_area_per_time = []
     for t, l in enumerate(length_per_time):
-        steps = [length_per_time[t][-1]-i*1 for i in range(cm_inside+1)][::-1]
+        steps = [length_per_time[t][-1] - i * 1 for i in range(cm_inside + 1)][::-1]
         section_area = []
-        for i,step in enumerate(steps[:-1]):
-            area = tube_area[t,np.where(np.logical_and(l>=step, l<=steps[i+1]))][0]
+        for i, step in enumerate(steps[:-1]):
+            indices = np.where(np.logical_and(l>=step, l<=steps[i+1]))[0]
+            # add one more index, if possible as the next tube section is
+            # paritally in this interval
+            if indices[-1] < tube_area.shape[1] - 1:
+                indices = np.concatenate((indices, indices[-1:] + 1))
+            area = tube_area[t, indices]
             if calculate == "raw":
                 section_area += [area]
             elif calculate == "mean":

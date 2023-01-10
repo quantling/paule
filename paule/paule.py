@@ -205,7 +205,7 @@ class Paule():
                                              output_size=10,
                                              input_size=30,
                                              apply_half_sequence=False).double()
-                self.cp_tube_model.load_state_dict(torch.load(os.path.join(
+                self.cp_tube_model.load_state_dict(torch.load(os.path.join(DIR,
                     "pretrained_models/somatosensory/cp_to_tube_model_1_360_lr_0001_50_00001_100.pt"),
                                                          map_location=self.device))
             self.cp_tube_model = self.cp_tube_model.to(self.device)
@@ -219,7 +219,7 @@ class Paule():
                      output_size = 60,
                     input_size = 10,
                     apply_half_sequence=True).double()
-                self.tube_mel_model.load_state_dict(torch.load(os.path.join(
+                self.tube_mel_model.load_state_dict(torch.load(os.path.join(DIR,
                     "pretrained_models/somatosensory/tube_to_mel_model_1_360_lr_0001_50_00001_100.pt"),
                                                           map_location=self.device))
             self.tube_mel_model = self.tube_mel_model.to(self.device)
@@ -233,7 +233,8 @@ class Paule():
                                                     hidden_size=720,
                                                     dropout=0.7,
                                                     post_upsampling_size=0).double()
-                self.tube_embedder.load_state_dict(torch.load(os.path.join("pretrained_models/somatosensory/tube_to_vector_model_10_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
+                self.tube_embedder.load_state_dict(torch.load(os.path.join(DIR,
+                    "pretrained_models/somatosensory/tube_to_vector_model_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                            map_location=self.device))
             self.tube_embedder = self.tube_embedder.to(self.device)
             self.tube_embedder.eval()
