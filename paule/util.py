@@ -892,14 +892,28 @@ def download_pretrained_weights(*, skip_if_exists=True, verbose=True):
         if skip_if_exists:
             if verbose:
                 print(f"pretrained_models exist already. Skip download. Path is {model_weights_path}")
+                print('Version of pretrained weights is "{get_pretrained_weights_version()}"')
             return
         shutil.rmtree(model_weights_path)
 
     zip_file_url = "https://nc.mlcloud.uni-tuebingen.de/index.php/s/N4nik8wgxwQHP83/download"
     if verbose:
-        print(f"downloading 114 MB of pretrained weights from {zip_file_url}")
+        print(f"downloading 200 MB of pretrained weights from {zip_file_url}")
         print(f"saving pretrained weights to {model_weights_path}")
     stream = requests.get(zip_file_url, stream=True)
     zip_file = zipfile.ZipFile(io.BytesIO(stream.content))
     zip_file.extractall(package_path)
+    if verbose:
+        print('Version of pretrained weights is "{get_pretrained_weights_version()}"')
+
+
+def get_pretrained_weights_version():
+    """read and return the version of the pretrained weights, <No version file
+    found> if no pretrained weights exist"""
+    version_path = os.path.join(DIR, 'pretrained_models/version.txt')
+    if not os.path.exists(version_path):
+        return f"<No version file found at {version_path}>"
+    with open(version_path, 'rt') as vfile:
+        version = vfile.read().strip()
+    return version
 

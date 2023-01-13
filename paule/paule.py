@@ -40,8 +40,10 @@ random.seed(20200905)
 tqdm.pandas()
 
 from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
-        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk, cp_trajectory_loss, mel_to_sig,
-        pad_batch_online, speak_and_extract_tube_information, normalize_tube, get_area_info_within_oral_cavity)
+        stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk,
+        cp_trajectory_loss, mel_to_sig, pad_batch_online,
+        speak_and_extract_tube_information, normalize_tube,
+        get_area_info_within_oral_cavity, get_pretrained_weights_version)
 
 from .models import (ForwardModel, InverseModelMelTimeSmoothResidual, EmbeddingModel, Generator, NonLinearModel)
 
@@ -108,6 +110,8 @@ class Paule():
         # load the pred_model, inv_model and embedder here
         # for cpu
         self.device = device
+
+        print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
 
         # PREDictive MODEL (cp -> mel)
         if pred_model:
@@ -188,8 +192,8 @@ class Paule():
             self.mel_gen_model = mel_gen_model
         else:
             self.mel_gen_model = Generator(output_size=60).double()
-            self.mel_gen_model.load_state_dict(torch.load(os.path.join(DIR,
-                                                                       "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_400.pt"),
+            self.mel_gen_model.load_state_dict(torch.load(
+                os.path.join(DIR, "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_400.pt"),
                                                           map_location=self.device))
         self.mel_gen_model = self.mel_gen_model.to(self.device)
         self.mel_gen_model.eval()
@@ -205,8 +209,8 @@ class Paule():
                                              output_size=10,
                                              input_size=30,
                                              apply_half_sequence=False).double()
-                self.cp_tube_model.load_state_dict(torch.load(os.path.join(DIR,
-                    "pretrained_models/somatosensory/cp_to_tube_model_1_360_lr_0001_50_00001_100.pt"),
+                self.cp_tube_model.load_state_dict(torch.load(
+                    os.path.join(DIR, "pretrained_models/somatosensory/cp_to_tube_model_1_360_lr_0001_50_00001_100.pt"),
                                                          map_location=self.device))
             self.cp_tube_model = self.cp_tube_model.to(self.device)
 
@@ -219,8 +223,8 @@ class Paule():
                      output_size = 60,
                     input_size = 10,
                     apply_half_sequence=True).double()
-                self.tube_mel_model.load_state_dict(torch.load(os.path.join(DIR,
-                    "pretrained_models/somatosensory/tube_to_mel_model_1_360_lr_0001_50_00001_100.pt"),
+                self.tube_mel_model.load_state_dict(torch.load(
+                    os.path.join(DIR, "pretrained_models/somatosensory/tube_to_mel_model_1_360_lr_0001_50_00001_100.pt"),
                                                           map_location=self.device))
             self.tube_mel_model = self.tube_mel_model.to(self.device)
 
@@ -233,8 +237,8 @@ class Paule():
                                                     hidden_size=720,
                                                     dropout=0.7,
                                                     post_upsampling_size=0).double()
-                self.tube_embedder.load_state_dict(torch.load(os.path.join(DIR,
-                    "pretrained_models/somatosensory/tube_to_vector_model_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
+                self.tube_embedder.load_state_dict(torch.load(
+                    os.path.join(DIR, "pretrained_models/somatosensory/tube_to_vector_model_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                            map_location=self.device))
             self.tube_embedder = self.tube_embedder.to(self.device)
             self.tube_embedder.eval()
