@@ -892,7 +892,7 @@ def download_pretrained_weights(*, skip_if_exists=True, verbose=True):
         if skip_if_exists:
             if verbose:
                 print(f"pretrained_models exist already. Skip download. Path is {model_weights_path}")
-                print('Version of pretrained weights is "{get_pretrained_weights_version()}"')
+                print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
             return
         shutil.rmtree(model_weights_path)
 
@@ -904,7 +904,7 @@ def download_pretrained_weights(*, skip_if_exists=True, verbose=True):
     zip_file = zipfile.ZipFile(io.BytesIO(stream.content))
     zip_file.extractall(package_path)
     if verbose:
-        print('Version of pretrained weights is "{get_pretrained_weights_version()}"')
+        print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
 
 
 def get_pretrained_weights_version():
