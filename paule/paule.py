@@ -543,8 +543,8 @@ class Paule():
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
                     semvec_loss = 10 * semvec_loss
                     tube_mel_loss = tube_mel_loss
                     tube_semvec_loss = 10 * tube_semvec_loss
@@ -567,8 +567,8 @@ class Paule():
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
                     tube_mel_loss = tube_mel_loss
                     loss = mel_loss + velocity_loss + jerk_loss + tube_mel_loss
                     return loss, mel_loss, velocity_loss, jerk_loss, tube_mel_loss
@@ -587,8 +587,8 @@ class Paule():
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
                     semvec_loss = 10 * semvec_loss
                     tube_semvec_loss = 10 * tube_semvec_loss
                     loss = velocity_loss + jerk_loss + semvec_loss + tube_semvec_loss
