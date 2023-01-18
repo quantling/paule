@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paule"
-version = "0.3.2"
+version = "0.3.3"
 description = "paule implements the Predictive Articulatory speech synthesis model Utilizing Lexical Embeddings (PAULE), which is a control model for the articulatory speech synthesizer VocalTractLab (VTL)."
 
 license = "GPLv3+"
