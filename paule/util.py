@@ -14,21 +14,24 @@ import pandas as pd
 import requests
 
 DIR = os.path.dirname(__file__)
+_PREFIX = ''
 _FILE_ENDING = ''
 if sys.platform.startswith('linux'):
     _FILE_ENDING = '.so'
+    _PREFIX = 'lib'
 elif sys.platform.startswith('win32'):
     _FILE_ENDING = '.dll'
 elif sys.platform.startswith('darwin'):
     _FILE_ENDING = '.dylib'
+    _PREFIX = 'lib'
 
 # initialize vtl
-VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, 'vocaltractlab_api/libVocalTractLabApi' + _FILE_ENDING))
+VTL = ctypes.cdll.LoadLibrary(os.path.join(DIR, f'vocaltractlab_api/{_PREFIX}VocalTractLabApi{_FILE_ENDING}'))
 SPEAKER_FILE_NAME = ctypes.c_char_p(os.path.join(DIR, 'vocaltractlab_api/JD3.speaker').encode())
 FAILURE = VTL.vtlInitialize(SPEAKER_FILE_NAME)
 if FAILURE != 0:
     raise ValueError('Error in vtlInitialize! Errorcode: %i' % FAILURE)
-del SPEAKER_FILE_NAME, FAILURE, _FILE_ENDING
+del SPEAKER_FILE_NAME, FAILURE, _FILE_ENDING, _PREFIX
 
 # get version / compile date
 VERSION = ctypes.c_char_p(b' ' * 64)
