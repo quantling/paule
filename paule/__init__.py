@@ -35,7 +35,7 @@ try:
     __version__ = metadata.version(__package__)
 except metadata.PackageNotFoundError:
     import toml
-    __version__ = toml.load("pyproject.toml")["tool"]["poetry"]["version"] + "dev"
+    __version__ = toml.load(os.path.join(os.path.dirname(__file__), "../pyproject.toml"))["tool"]["poetry"]["version"] + "dev"
 
 
 def sysinfo():
