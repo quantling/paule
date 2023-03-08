@@ -114,6 +114,7 @@ Continuous Integration
 ----------------------
 TODO: see pyndl documentation for reference.
 
+
 Licensing
 ---------
 All contributions to this project are licensed under the `GPLv3+ license
@@ -133,7 +134,7 @@ Release Process
        poetry version major|minor|patch|...
 
 
-2. Merge Pull Requests with new features or bugfixes into *pyndl*'s' ``main``
+2. Merge Pull Requests with new features or bugfixes into *paule*'s' ``main``
    branch.
 
 3. Create a new release on Github of the `main` branch of the form ``vX.Y.Z``
@@ -142,7 +143,7 @@ Release Process
    Versioning_ below. This will trigger a Action to automatically build and
    upload the release to PyPI
 
-4. Check if the new version is on pypi (https://pypi.python.org/pypi/pyndl/).
+4. Check if the new version is on pypi (https://pypi.python.org/pypi/paule/).
 
 5. Manuel publishing works the following (maintainer only):
 
