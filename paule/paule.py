@@ -1174,7 +1174,7 @@ class Paule():
 
                         avg_loss.append(float(pred_loss.item()))
 
-                        if self.use_somatosensory_feedback and continue_learning_tube:
+                        if continue_learning_tube and self.use_somatosensory_feedback:
                             lens_output_tube_j = lens_output_tube[j]
                             batch_output_tube = tgts_tube.iloc[j]
                             batch_output_tube = pad_batch_online(lens_output_tube_j, batch_output_tube, self.device)
@@ -1201,7 +1201,7 @@ class Paule():
 
                     pred_model_loss.append(np.mean(avg_loss))
 
-                    if self.use_somatosensory_feedback:
+                    if continue_learning_tube and self.use_somatosensory_feedback:
                         tube_model_loss.append(np.mean(avg_loss_tube))
                         tube_mel_model_loss.append(np.mean(avg_loss_tube_mel))
 
