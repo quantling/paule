@@ -47,8 +47,8 @@ results = paule_model.plan_resynth(learning_rate_planning=0.01,
 
 
 # save model and optimizer
-torch.save(paule_model.pred_model, f"{save_file}_pred_model.pt")
-torch.save(paule_model.pred_optimizer, f"{save_file}_pred_optimizer.pt")
+torch.save(paule_model.pred_model.state_dict(), f"{save_file}_pred_model.pt")
+torch.save(paule_model.pred_optimizer.state_dict(), f"{save_file}_pred_optimizer.pt")
 
 # save results without model and optimizer
 with open(f"{save_file}.pkl", 'wb') as pfile:

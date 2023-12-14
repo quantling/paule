@@ -18,6 +18,7 @@ The general idea works as follows:
     5. Do this 200 times
     6. after 200 planning updates continue the training of the predictive model
        with an actual synthesized version
+
 """
 
 import random
@@ -100,17 +101,20 @@ class Paule():
     Articulatory speech synthesise Using Lexical Embeddings.
     This state especially are the weights of the predictive, inverse and
     embedder model as well as data used for continue learning.
+
     """
 
-    def __init__(self, *, pred_model=None, pred_optimizer=None, inv_model=None,inv_optimizer=None,
+    def __init__(self, *, pred_model=None, pred_optimizer=None, inv_model=None, inv_optimizer=None,
                  embedder=None, cp_gen_model=None, mel_gen_model=None,
                  use_somatosensory_feedback=False, cp_tube_model=None, tube_optimizer=None,
                  tube_mel_model=None, tube_mel_optimizer=None, tube_embedder=None,
-                 continue_data=None, device=torch.device('cpu')):
+                 continue_data=None, device=torch.device('cpu'), smiling=False):
 
         # load the pred_model, inv_model and embedder here
         # for cpu
         self.device = device
+
+        self.smiling = smiling
 
         print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
 
@@ -1003,6 +1007,13 @@ class Paule():
 
                 with torch.no_grad():
                     xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
+                    if self.smiling:
+                        #Vocal tract parameters: "HX HY JX JA LP LD VS VO TCX TCY TTX TTY TBX TBY TRX TRY TS1 TS2 TS3"
+                        #Glottis parameters: "f0 pressure x_bottom x_top chink_area lag rel_amp double_pulsing pulse_skewness flutter aspiration_strength "
+                        # keep LP and HY at the maximum
+                        xx_new.data[:, :, 4] = -1.0  # "LP"
+                        xx_new.data[:, :, 1] = 1.0  # "HY"
+
                     if not past_cp is None:
                         xx_new.data[:, 0:past_cp_torch.shape[0], :] = past_cp_torch
 
