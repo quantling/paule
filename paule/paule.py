@@ -513,7 +513,7 @@ class Paule():
             elif initialize_from == "semvec":
                 cp_gen_noise = torch.randn(1, 1, 100).to(self.device)
                 if not isinstance(target_semvec, torch.Tensor):
-                    target_semvec = torch.tensor(target_semvec)
+                    target_semvec = torch.tensor(target_semvec, device=self.device)
                 cp_gen_semvec = target_semvec.view(1, 300).detach().clone()
                 initial_cp = self.cp_gen_model(cp_gen_noise, 2 * target_seq_length, cp_gen_semvec)
                 initial_cp = initial_cp.detach().cpu().numpy()
