@@ -857,6 +857,8 @@ class Paule():
                         planned_mel_loss_steps.append(float(mel_loss.item()))
                         vel_loss_steps.append(float(vel_loss.item()))
                         jerk_loss_steps.append(float(jerk_loss.item()))
+                        if self.use_speech_classifier:
+                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
 
@@ -905,6 +907,8 @@ class Paule():
                         vel_loss_steps.append(float(vel_loss.item()))
                         jerk_loss_steps.append(float(jerk_loss.item()))
                         pred_semvec_loss_steps.append(float(semvec_loss.item()))
+                        if self.use_speech_classifier:
+                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
                             pred_tube_semvec_loss_steps.append(float(tube_semvec_loss.item()))
