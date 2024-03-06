@@ -46,7 +46,8 @@ from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         speak_and_extract_tube_information, normalize_tube,
         get_area_info_within_oral_cavity, get_pretrained_weights_version)
 
-from .models import (ForwardModel, InverseModelMelTimeSmoothResidual, EmbeddingModel, Generator, NonLinearModel)
+from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
+        EmbeddingModel, Generator, NonLinearModel, SpeechNonSpeechTransformer)
 
 from . import visualize
 
@@ -54,6 +55,7 @@ DIR = os.path.dirname(__file__)
 
 
 PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss")
+PlanningResultsWithSpeechClassifier = namedtuple('PlanningResultsWithSpeechClassifier', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, pred_speech_classifier_loss_steps, prod_speech_classifier_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss")
 PlanningResultsWithSomatosensory = namedtuple('PlanningResultsWithSomatosensory', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, initial_prod_semvec, initial_pred_semvec, initial_prod_tube_semvec, initial_pred_tube_semvec, prod_semvec, pred_semvec, prod_tube_semvec, pred_tube_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, prod_tube_loss_steps, pred_tube_mel_loss_steps,prod_tube_mel_loss_steps, pred_tube_semvec_loss_steps, prod_tube_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semvec_steps, pred_tube_semvec_steps, pred_model_loss, inv_model_loss, tube_model_loss, tube_mel_model_loss")
 
 BestSynthesisAcoustic = namedtuple('BestSynthesisAcoustic', "mel_loss, planned_cp, prod_sig, prod_mel, pred_mel")
@@ -63,6 +65,8 @@ BestSynthesisSomatosensory = namedtuple('BestSynthesisSomatosensory',"tube_loss,
 rmse_loss = RMSELoss(eps=0)
 l2 = MSELoss()
 l1 = L1Loss()
+bce_loss = torch.nn.BCEWithLogitsLoss()
+
 
 
 def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
@@ -108,7 +112,9 @@ class Paule():
                  embedder=None, cp_gen_model=None, mel_gen_model=None,
                  use_somatosensory_feedback=False, cp_tube_model=None, tube_optimizer=None,
                  tube_mel_model=None, tube_mel_optimizer=None, tube_embedder=None,
-                 continue_data=None, device=torch.device('cpu'), smiling=False):
+                 continue_data=None, device=torch.device('cpu'), smiling=False,
+                 use_speech_classifier=False, speech_classifier=None,
+                 speech_classifier_optimizer=None):
 
         # load the pred_model, inv_model and embedder here
         # for cpu
@@ -117,6 +123,9 @@ class Paule():
         self.smiling = smiling
 
         print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
+
+        if use_somatosensory_feedback and use_speech_classifier:
+            raise NotImplementedError("at the moment you have to choose either to use `use_somatosenrosry_feedback=True` OR to use `use_speech_classifier=True` or none")
 
         # PREDictive MODEL (cp -> mel)
         if pred_model:
@@ -203,6 +212,20 @@ class Paule():
         self.mel_gen_model = self.mel_gen_model.to(self.device)
         self.mel_gen_model.eval()
 
+        self.use_speech_classifier = use_speech_classifier
+        if self.use_speech_classifier:
+            # SPEECH CLASSIFIER (binary classifier with 0 is speech-like)
+            if speech_classifier:
+                self.speech_classifier = speech_classifier
+            else:
+                self.speech_classifier = SpeechNonSpeechTransformer(input_dim=60, num_layers=3, nhead=6, output_dim=1)
+                self.speech_classifier.load_state_dict(torch.load(
+                    os.path.join(DIR, "pretrained_models/speech_classifier/model_rec_as_nonspeech.pt"),
+                           map_location=self.device))
+                self.speech_classifier = self.speech_classifier.double()
+            self.speech_classifier = self.speech_classifier.to(self.device)
+            self.speech_classifier.eval()
+
         self.use_somatosensory_feedback = use_somatosensory_feedback
         if self.use_somatosensory_feedback:
             # CP-Tube Model (cp -> tube)
@@ -248,7 +271,6 @@ class Paule():
             self.tube_embedder = self.tube_embedder.to(self.device)
             self.tube_embedder.eval()
 
-
         # DATA to continue learning
         self.continue_data = continue_data
         self.continue_data_limit = 1000  # max amount of training data stored in paule instance
@@ -281,6 +303,13 @@ class Paule():
             else:
                 self.tube_mel_optimizer = torch.optim.Adam(self.tube_mel_model.parameters(), lr=0.001)
             self.tube_mel_criterion = rmse_loss
+
+        if self.use_speech_classifier:
+            if speech_classifier_optimizer:
+                self.speech_classifier_optimizer = speech_classifier_optimizer
+            else:
+                self.speech_classifier_optimizer = torch.optim.Adam(self.speech_classifier.parameters(), lr=0.001)
+            self.speech_classifier_criterion = torch.nn.BCEWithLogitsLoss()
 
         self.best_synthesis_acoustic = None
         self.best_synthesis_semantic = None
@@ -546,7 +575,22 @@ class Paule():
 
 
         if objective == 'acoustic_semvec':
-            if self.use_somatosensory_feedback:
+            if self.use_speech_classifier:
+                def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_speech_classifier):
+                    mel_loss = rmse_loss(pred_mel, target_mel)
+                    semvec_loss = rmse_loss(pred_semvec, target_semvec)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    speech_classifier_loss = bce_loss(pred_speech_classifier,
+                            torch.zeros_like(pred_speech_classifier,
+                                dtype=pred_speech_classifier.dtype))
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
+                    semvec_loss = 10 * semvec_loss
+                    speech_classifier_loss = 0.1 * speech_classifier_loss
+                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss
+                    return loss, mel_loss, velocity_loss, jerk_loss, semvec_loss, speech_classifier_loss
+
+            elif self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_tube_mel, pred_tube_semvec):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
@@ -572,7 +616,20 @@ class Paule():
                     return loss, mel_loss, velocity_loss, jerk_loss, semvec_loss
 
         elif objective == 'acoustic':
-            if self.use_somatosensory_feedback:
+            if self.use_speech_classifier:
+                def criterion(pred_mel, target_mel, cps, pred_speech_classifier):
+                    mel_loss = rmse_loss(pred_mel, target_mel)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    speech_classifier_loss = bce_loss(pred_speech_classifier,
+                            torch.zeros_like(pred_speech_classifier,
+                                dtype=pred_speech_classifier.dtype))
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
+                    speech_classifier_loss = 0.1 * speech_classifier_loss
+                    loss = mel_loss + velocity_loss + jerk_loss + speech_classifier_loss
+                    return loss, mel_loss, velocity_loss, jerk_loss, speech_classifier_loss
+
+            elif self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, cps, pred_tube_mel):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
@@ -592,7 +649,21 @@ class Paule():
                     return loss, mel_loss, velocity_loss, jerk_loss
 
         elif objective == 'semvec':
-            if self.use_somatosensory_feedback:
+            if self.use_speech_classifier:
+                def criterion(pred_semvec, target_semvec, cps, pred_speech_classifier):
+                    semvec_loss = rmse_loss(pred_semvec, target_semvec)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    speech_classifier_loss = bce_loss(pred_speech_classifier,
+                            torch.zeros_like(pred_speech_classifier,
+                                dtype=pred_speech_classifier.dtype))
+                    velocity_loss = 4 * velocity_loss
+                    jerk_loss = 4 * jerk_loss
+                    semvec_loss = 10 * semvec_loss
+                    speech_classifier_loss = 0.1 * speech_classifier_loss
+                    loss = velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss
+                    return loss, velocity_loss, jerk_loss, semvec_loss, speech_classifier_loss
+
+            elif self.use_somatosensory_feedback:
                 def criterion(pred_semvec, target_semvec, cps, pred_tube_semvec):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
                     velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
@@ -653,6 +724,10 @@ class Paule():
 
             tube_model_loss = list()
             tube_mel_model_loss = list()
+        elif self.use_speech_classifier:
+            prod_speech_classifier_loss_steps = list()
+            pred_speech_classifier_loss_steps = list()
+
 
 
         # initial results
@@ -694,7 +769,7 @@ class Paule():
 
         else:
             initial_sig, initial_sr = speak(inv_normalize_cp(xx_new_numpy))
-        
+
         initial_prod_mel = librosa_melspec(initial_sig, initial_sr)
         initial_prod_mel = normalize_mel_librosa(initial_prod_mel)
         initial_prod_mel.shape = initial_pred_mel.shape
@@ -715,7 +790,7 @@ class Paule():
         initial_pred_semvec = initial_pred_semvec[-1, :].detach().cpu().numpy().copy()
 
 
-        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)  
+        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)
         self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)
         if self.use_somatosensory_feedback:
             self.best_synthesis_somatosensory = BestSynthesisSomatosensory(np.Inf, np.Inf, np.Inf, initial_cp, initial_sig,
@@ -759,15 +834,20 @@ class Paule():
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                     pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
 
+                    if self.use_speech_classifier:
+                        pred_speech_classifier = self.speech_classifier(pred_mel)
                     if self.use_somatosensory_feedback:
                         tube_seq_length = pred_tube.shape[1]
                         self.tube_embedder = self.tube_embedder.train()
                         pred_tube_semvec = self.tube_embedder(pred_tube, (torch.tensor(tube_seq_length),))
                         pred_tube_semvec_steps_ii.append(pred_tube_semvec[-1, :].detach().cpu().numpy().copy())
 
+
                 # discrepancy,mel_loss, vel_loss, jerk_loss, pred_mel = constrained_criterion(tanh_straight_through(xx_new), target_mel)
                 if objective == 'acoustic':
-                    if self.use_somatosensory_feedback:
+                    if self.use_speech_classifier:
+                        discrepancy, mel_loss, vel_loss, jerk_loss, speech_classifier_loss = criterion(pred_mel, target_mel, xx_new, pred_speech_classifier)
+                    elif self.use_somatosensory_feedback:
                         discrepancy, mel_loss, vel_loss, jerk_loss, tube_mel_loss = criterion(pred_mel, target_mel, xx_new, pred_tube_mel)
                     else:
                         discrepancy, mel_loss, vel_loss, jerk_loss = criterion(pred_mel, target_mel, xx_new)
@@ -799,6 +879,8 @@ class Paule():
                         print("Mel Loss: ", float(mel_loss.item()))
                         print("Vel Loss: ", float(vel_loss.item()))
                         print("Jerk Loss: ", float(jerk_loss.item()))
+                        if self.use_speech_classifier:
+                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             print("Tube Mel Loss: ", float(tube_mel_loss.item()))
                         if log_semantics:
@@ -807,7 +889,9 @@ class Paule():
                                 print("Tube Semvec Loss: ", float(tube_semvec_loss))
 
                 elif objective == 'acoustic_semvec':
-                    if self.use_somatosensory_feedback:
+                    if self.use_speech_classifier:
+                        discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss, speech_classifier_loss = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new, pred_speech_classifier)
+                    elif self.use_somatosensory_feedback:
                         discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss, tube_mel_loss, tube_semvec_loss = criterion(pred_mel, target_mel,
                                                                                             pred_semvec, target_semvec,
                                                                                             xx_new, pred_tube_mel, pred_tube_semvec)
@@ -832,12 +916,16 @@ class Paule():
                         print("Vel Loss: ", float(vel_loss.item()))
                         print("Jerk Loss: ", float(jerk_loss.item()))
                         print("Semvec Loss: ", float(semvec_loss.item()))
+                        if self.use_speech_classifier:
+                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             print("Tube Mel Loss: ", float(tube_mel_loss.item()))
                             print("Tube Semvec Loss: ", float(tube_semvec_loss.item()))
 
                 elif objective == 'semvec':
-                    if self.use_somatosensory_feedback:
+                    if self.use_speech_classifier:
+                        discrepancy, vel_loss, jerk_loss, semvec_loss, speech_classifier_loss = criterion(pred_semvec, target_semvec, xx_new, pred_speech_classifier)
+                    elif self.use_somatosensory_feedback:
                         discrepancy, vel_loss, jerk_loss, semvec_loss, tube_semvec_loss = criterion(pred_semvec, target_semvec, xx_new, pred_tube_semvec)
                         mel_loss = rmse_loss(pred_mel, target_mel)
                         tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
@@ -852,6 +940,8 @@ class Paule():
                         pred_semvec_loss_steps.append(float(semvec_loss.item()))
                         planned_mel_loss_steps.append(float(mel_loss.item()))
 
+                        if self.use_speech_classifier:
+                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             pred_tube_semvec_loss_steps.append(float(tube_semvec_loss.item()))
                             pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
@@ -863,6 +953,8 @@ class Paule():
                         print("Vel Loss: ", float(vel_loss.item()))
                         print("Jerk Loss: ", float(jerk_loss.item()))
                         print("Semvec Loss: ", float(semvec_loss.item()))
+                        if self.use_speech_classifier:
+                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             print("Tube Mel Loss: ", float(tube_mel_loss.item()))
                             print("Tube Semvec Loss: ", float(tube_semvec_loss.item()))
@@ -935,8 +1027,19 @@ class Paule():
                     prod_loss = rmse_loss(prod_mel, target_mel)
                     prod_loss_steps.append(float(prod_loss.item()))
 
+                    if self.use_speech_classifier:
+                        prod_speech_classifier = self.speech_classifier(prod_mel)
+                        prod_speech_classifier_loss = bce_loss(
+                                prod_speech_classifier,
+                                torch.zeros_like(prod_speech_classifier, dtype=prod_speech_classifier.dtype))
+
+                        prod_speech_classifier_loss_steps.append(float(
+                            prod_speech_classifier_loss.item()))
+
                     if verbose:
                         print("Produced Mel Loss: ", float(prod_loss.item()))
+                        if self.use_speech_classifier:
+                            print("Produced Speech Classifier Loss: ", float(prod_speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             print("Produced Tube Loss: ", float(prod_tube_loss.item()))
 
@@ -999,7 +1102,7 @@ class Paule():
                                                                                            None)
                             if self.best_synthesis_somatosensory.tube_loss > new_synthesis_somatosensory.tube_loss:
                                 self.best_synthesis_somatosensory = new_synthesis_somatosensory
-                        
+
                     if verbose:
                         print("")
 
@@ -1329,8 +1432,15 @@ class Paule():
         # 31. pred_mel_steps
         # 32. pred_model_loss
         # 33. inv_model_loss
-
-        if self.use_somatosensory_feedback:
+        if self.use_speech_classifier:
+            return PlanningResultsWithSpeechClassifier(planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel,
+                    target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel,
+                    pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps,
+                    planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps,
+                    pred_semvec_loss_steps, prod_semvec_loss_steps, pred_speech_classifier_loss_steps, prod_speech_classifier_loss_steps,
+                    cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
+                    prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss)
+        elif self.use_somatosensory_feedback:
             return PlanningResultsWithSomatosensory(planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel,
                                    target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel,
                                    pred_mel, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, initial_prod_semvec, initial_pred_semvec, initial_prod_tube_semvec, initial_pred_tube_semvec, prod_semvec, pred_semvec, prod_tube_semvec, pred_tube_semvec,
