@@ -29,7 +29,8 @@ def visualize_results(results, condition='prefix', folder='data'):
     target_sr = prod_sr = 44100
     sf.write(f'{base_name}_planned.flac', results.prod_sig, results.prod_sr)
     sf.write(f'{base_name}_initial.flac', results.initial_sig, results.initial_sr)
-    sf.write(f'{base_name}_target.flac', results.target_sig, results.target_sr)
+    if results.target_sig is not None:
+        sf.write(f'{base_name}_target.flac', results.target_sig, results.target_sr)
 
     # save loss plot
     fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")

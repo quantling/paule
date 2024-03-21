@@ -505,6 +505,8 @@ class Paule():
             if not isinstance(target_mel, torch.Tensor):
                 raise ValueError("target_acoustic has to be torch.Tensor at this point")
             target_seq_length = target_mel.shape[1]
+            target_sig = None
+            target_sr = None
 
 
         if target_acoustic is None and (target_seq_length is None or target_semvec is None):
