@@ -46,6 +46,7 @@ del VERSION
 
 # absolute value from max / min
 
+#Vocal tract parameters: " 0  1  2  3  4  5  6  7   8   9  10  11  12  13  14  15  16  17  18"
 #Vocal tract parameters: "HX HY JX JA LP LD VS VO TCX TCY TTX TTY TBX TBY TRX TRY TS1 TS2 TS3"
 #Glottis parameters: "f0 pressure x_bottom x_top chink_area lag rel_amp double_pulsing pulse_skewness flutter aspiration_strength "
 

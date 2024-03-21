@@ -490,12 +490,22 @@ class Paule():
 
         elif target_acoustic is None:
             pass
-        else:
+        elif len(target_acoustic) == 2:
             target_sig, target_sr = target_acoustic
+        else:
+            if len(target_acoustic.shape) == 2:
+                target_mel = target_acoustic
+                target_mel.shape = (1,) + target_mel.shape
+                target_mel = torch.from_numpy(target_mel)
+            else:
+                target_mel = target_acoustic
+            if not isinstance(target_acoustic, torch.Tensor):
+                raise ValueError("target_acoustic has to be torch.Tensor at this point")
+            target_seq_length = target_mel.shape[1]
+
 
         if target_acoustic is None and (target_seq_length is None or target_semvec is None):
             raise ValueError("if target_acoustic is None you need to give a target_seq_length and a target_semvec")
-
         elif target_acoustic is None:
             mel_gen_noise = torch.randn(1, 1, 100).to(self.device)
             if not isinstance(target_semvec, torch.Tensor):
@@ -504,7 +514,7 @@ class Paule():
             target_mel = self.mel_gen_model(mel_gen_noise, target_seq_length, mel_gen_semvec)
             target_mel = target_mel.detach().clone()
             target_sig, target_sr = mel_to_sig(target_mel.view(target_mel.shape[1], target_mel.shape[2]).cpu().numpy())
-        else:
+        elif len(target_acoustic) == 2:
             target_mel = librosa_melspec(target_sig, target_sr)
             target_mel = normalize_mel_librosa(target_mel)
             target_mel -= target_mel.min()
