@@ -494,12 +494,15 @@ class Paule():
             target_sig, target_sr = target_acoustic
         else:
             if len(target_acoustic.shape) == 2:
-                target_mel = target_acoustic
+                target_mel = target_acoustic.copy()
                 target_mel.shape = (1,) + target_mel.shape
                 target_mel = torch.from_numpy(target_mel)
             else:
-                target_mel = target_acoustic
-            if not isinstance(target_acoustic, torch.Tensor):
+                if not isinstance(target_acoustic, torch.Tensor):
+                    target_mel = torch.from_numpy(target_acoustic)
+                else:
+                    target_mel = target_acoustic.copy()
+            if not isinstance(target_mel, torch.Tensor):
                 raise ValueError("target_acoustic has to be torch.Tensor at this point")
             target_seq_length = target_mel.shape[1]
 
