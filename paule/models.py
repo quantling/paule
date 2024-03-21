@@ -1,4 +1,16 @@
+import math
+
 import torch
+from torch.nn import (
+    Transformer,
+    TransformerEncoder,
+    Module,
+    Sequential,
+    Linear,
+    GELU,
+)
+from torch import nn
+
 
 
 ########################################################################################################################
@@ -786,3 +798,114 @@ class LSTMGenerator(torch.nn.Module):
         output = self.output_activation(output)
 
         return output
+
+
+
+class PositionalEncoding(Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+
+        position = torch.arange(0, max_len)
+        position = position.unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )
+        pe = torch.zeros(max_len, d_model)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
+    def forward(self, input_):
+        output = input_ + self.pe[:, : input_.size(1), :]
+        return output
+
+
+class CustomTransformerEncoderLayer(nn.Module):
+    def __init__(
+        self, d_model, nhead, dim_feedforward=2048, dropout=0.1, activation=GELU()
+    ):
+        super(CustomTransformerEncoderLayer, self).__init__()
+        self.self_attn = nn.MultiheadAttention(
+            d_model, nhead, dropout=dropout, batch_first=True
+        )
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = activation
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=None):
+        src2 = self.self_attn(
+            src, src, src, attn_mask=src_mask, key_padding_mask=src_key_padding_mask
+        )[0]
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+
+        return src
+
+
+class SpeechNonSpeechTransformer(Transformer):
+    def __init__(self, input_dim, num_layers, nhead, output_dim):
+        super().__init__()
+
+        self.pos_encoder = PositionalEncoding(input_dim, dropout=0.1)
+        self.encoder_layer = CustomTransformerEncoderLayer(
+            d_model=input_dim, nhead=nhead, dim_feedforward=1024, activation=GELU()
+        )
+        self.transformer_encoder = TransformerEncoder(
+            self.encoder_layer, num_layers=num_layers, enable_nested_tensor=False
+        )
+        self.linear = Sequential(Linear(input_dim, 20), GELU(), Linear(20, 1))
+
+
+    def forward(self, input_, *, src_lens=None):
+        mask = torch.zeros((input_.size(0), input_.size(1)), device=input_.device, dtype=input_.dtype)
+        if src_lens is not None:
+            for ii, len_ in enumerate(src_lens):
+                mask[ii, len_:] = float("-inf")
+
+        output = self.pos_encoder(input_)
+        output = self.transformer_encoder(output, src_key_padding_mask=mask)
+        output = output.mean(dim=1)
+        output = self.linear(output)
+
+        output = torch.squeeze(output, 1)
+
+        return output
+
+
+class LinearClassifier(Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+
+        self.linear = Linear(input_dim, output_dim)
+
+
+    def forward(self, input_, *, src_lens=None):
+
+        output = self.linear(input_)
+        output = torch.squeeze(output, 2)
+
+        # set all padded values to zero
+        if src_lens is not None:
+            for ii, len_ in enumerate(src_lens):
+                output[ii, len_:] = 0.0
+
+        # sum all values and devide by seq length
+        if src_lens is not None:
+            output = output.sum(dim=1) / torch.tensor(src_lens, device=output.device)
+        else:
+            output = output.mean(dim=1)
+
+        return output
+

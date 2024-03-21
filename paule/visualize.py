@@ -9,6 +9,7 @@ import soundfile as sf
 from matplotlib import pyplot as plt
 import librosa.display
 from matplotlib import cm
+import numpy as np
 
 from . import util
 
@@ -60,6 +61,15 @@ def visualize_results(results, condition='prefix', folder='data'):
     fig.tight_layout()
     fig.savefig(f"{base_name}_loss_semvec.png")
 
+    # save speech classifier loss plot
+    if hasattr(results, 'pred_speech_classifier_loss_steps'):
+        fig, ax = plt.subplots(figsize=(15, 8), facecolor="white")
+        ax.plot(results.pred_speech_classifier_loss_steps, label="planned speech classifier loss", c="C0")
+        ax.plot(np.array(results.prod_speech_classifier_loss_steps) / 10.0, label="produced speech classifier loss", c="C1")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(f"{base_name}_loss_speech_classifier.png")
+
     # save cp change plot
     fig = plt.figure(figsize=(15, 12))
     ax1 = fig.add_axes([0.1, 0.68, 0.88, 0.30], xticklabels=[])
@@ -68,13 +78,37 @@ def visualize_results(results, condition='prefix', folder='data'):
     img1 = results.initial_cp  #target['cp'].iloc[0]
     img2 = results.planned_cp
     img3 = img2 - img1
-    ax1.plot(img1[:, 8:16])  # , label='tongue'
+    ax1.plot(img1[:,  3: 4], label='JA')
+    ax1.plot(img1[:,  8: 9], label='TCX')
+    ax1.plot(img1[:,  9:10], label='TCY')
+    ax1.plot(img1[:, 10:11], label='TTX')
+    ax1.plot(img1[:, 11:12], label='TTY')
+    ax1.plot(img1[:, 12:13], label='TBX')
+    ax1.plot(img1[:, 13:14], label='TBY')
+    ax1.plot(img1[:, 14:15], label='TRX')
+    ax1.plot(img1[:, 15:16], label='TRY')
     ax1.plot(img1[:, 19:20], label='f0')
     ax1.set_ylabel("initial")
-    ax2.plot(img2[:, 8:16], label='tongue')
+    ax2.plot(img2[:,  3: 4], label='JA')
+    ax2.plot(img2[:,  8: 9], label='TCX')
+    ax2.plot(img2[:,  9:10], label='TCY')
+    ax2.plot(img2[:, 10:11], label='TTX')
+    ax2.plot(img2[:, 11:12], label='TTY')
+    ax2.plot(img2[:, 12:13], label='TBX')
+    ax2.plot(img2[:, 13:14], label='TBY')
+    ax2.plot(img2[:, 14:15], label='TRX')
+    ax2.plot(img2[:, 15:16], label='TRY')
     ax2.plot(img2[:, 19:20], label='f0')
     ax2.set_ylabel("optimized")
-    ax3.plot(img3[:, 8:16], label='tongue')
+    ax3.plot(img3[:,  3: 4], label='JA')
+    ax3.plot(img3[:,  8: 9], label='TCX')
+    ax3.plot(img3[:,  9:10], label='TCY')
+    ax3.plot(img3[:, 10:11], label='TTX')
+    ax3.plot(img3[:, 11:12], label='TTY')
+    ax3.plot(img3[:, 12:13], label='TBX')
+    ax3.plot(img3[:, 13:14], label='TBY')
+    ax3.plot(img3[:, 14:15], label='TRX')
+    ax3.plot(img3[:, 15:16], label='TRY')
     ax3.plot(img3[:, 19:20], label='f0')
     ax3.set_ylabel("difference")
     ax1.legend()
@@ -110,7 +144,7 @@ def visualize_results(results, condition='prefix', folder='data'):
     #if return_value != 0:
     #    print("WARNING: creating the planned animation went wrong")
 
-    plt.show()  # this shows all saved figures
+    #plt.show()  # this shows all saved figures
 
 
 def plot_mels(file_name, target_mel, initial_pred_mel, initial_prod_mel,
