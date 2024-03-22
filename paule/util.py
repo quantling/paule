@@ -600,6 +600,12 @@ def calculate_five_point_stencil_without_padding(trajectory):
     return (-xx[:, 4:, :] + 8.0 * xx[:, 3:-1, :] - 8.0 * xx[:, 1:-3, :] + xx[:, :-4, :]) / 12.0
 
 
+def numeric_derivative(xx):
+    xx_prime = calculate_five_point_stencil_without_padding(xx)
+    xx_prime2 =  (xx[:, 3:-1, :] - xx[:, 2:-2, :]) / 2.0 + (xx[:, 2:-2, :] - xx[:, 1:-3, :]) / 2.0
+    return (xx_prime + xx_prime2) / 2
+
+
 def get_vel_acc_jerk(trajectory, *, lag=None):
     """
     Approximates the velocity, acceleration, jerk for the given trajectory for a given lag
@@ -617,9 +623,9 @@ def get_vel_acc_jerk(trajectory, *, lag=None):
     """
     if lag is not None:
         warnings.warn("lag should not used anymore and is ignored", DeprecationWarning, stacklevel=2)
-    velocity = calculate_five_point_stencil_without_padding(trajectory)
-    acc = calculate_five_point_stencil_without_padding(velocity)
-    jerk = calculate_five_point_stencil_without_padding(acc)
+    velocity = numeric_derivative(trajectory)
+    acc = numeric_derivative(velocity)
+    jerk = numeric_derivative(acc)
     return velocity, acc, jerk
 
 
