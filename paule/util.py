@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+import warnings
 import zipfile
 
 import numpy as np
@@ -572,24 +573,53 @@ class RMSELoss(torch.nn.Module):
 
 rmse_loss = RMSELoss(eps=0)
 
-def get_vel_acc_jerk(trajectory, *, lag=1):
+
+def calculate_five_point_stencil_without_padding(trajectory):
+    """
+    Caculates the five-point stencil as a numeric approximation of the first derivative.
+
+    https://en.wikipedia.org/wiki/Five-point_stencil
+
+    Parameters
+    ==========
+    trajectory : np.array
+
+    Returns
+    =======
+    derivative : np.array
+
+    Equation
+    ========
+
+    .. math::
+
+        f'(x) \approx {\frac {-f(x+2h)+8f(x+h)-8f(x-h)+f(x-2h)}{12h}}}
+
+    """
+    xx = trajectory
+    return (-xx[:, 4:, :] + 8.0 * xx[:, 3:-1, :] - 8.0 * xx[:, 1:-3, :] + xx[:, :-4, :]) / 12.0
+
+
+def get_vel_acc_jerk(trajectory, *, lag=None):
     """
     Approximates the velocity, acceleration, jerk for the given trajectory for a given lag
 
     Parameters
     ==========
     trajectory : np.array
-    lag : int
+    lag : int (deprecated; ignored)
 
     Returns
     =======
     (velocity, acceleration, jerk) : np.array, np.array, np.array
         returns the approximated velocity, acceleration and jerk of the trajectory for a given lag
-    """
 
-    velocity = (trajectory[:, lag:, :] - trajectory[:, :-lag, :]) / lag
-    acc = (velocity[:, 1:, :] - velocity[:, :-1, :]) / 1.0
-    jerk = (acc[:, 1:, :] - acc[:, :-1, :]) / 1.0
+    """
+    if lag is not None:
+        warnings.warn("lag should not used anymore and is ignored", DeprecationWarning, stacklevel=2)
+    velocity = calculate_five_point_stencil_without_padding(trajectory)
+    acc = calculate_five_point_stencil_without_padding(velocity)
+    jerk = calculate_five_point_stencil_without_padding(acc)
     return velocity, acc, jerk
 
 

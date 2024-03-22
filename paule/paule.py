@@ -69,31 +69,19 @@ bce_loss = torch.nn.BCEWithLogitsLoss()
 
 
 
-def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
+def velocity_jerk_loss(pred, *, loss=rmse_loss, guiding_factor=None):
     """returns (velocity_loss, jerk_loss) tuple"""
     vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
-    vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
-    vel4, acc4, jerk4 = get_vel_acc_jerk(pred, lag=4)
-
-    loss = rmse_loss
 
     # in the lag calculation higher lags are already normalised to standard
     # units
     if guiding_factor is None:
-        velocity_loss = (loss(vel1, torch.zeros_like(vel1))
-                         + loss(vel2, torch.zeros_like(vel2))
-                         + loss(vel4, torch.zeros_like(vel4)))
-        jerk_loss = (loss(jerk1, torch.zeros_like(jerk1))
-                     + loss(jerk2, torch.zeros_like(jerk2))
-                     + loss(jerk4, torch.zeros_like(jerk4)))
+        velocity_loss = loss(vel1, torch.zeros_like(vel1))
+        jerk_loss = loss(jerk1, torch.zeros_like(jerk1))
     else:
         assert 0.0 < guiding_factor < 1.0
-        velocity_loss = (loss(vel1, guiding_factor * vel1.detach().clone())
-                         + loss(vel2, guiding_factor * vel2.detach().clone())
-                         + loss(vel4, guiding_factor * vel4.detach().clone()))
-        jerk_loss = (loss(jerk1, guiding_factor * jerk1.detach().clone())
-                     + loss(jerk2, guiding_factor * jerk2.detach().clone())
-                     + loss(jerk4, guiding_factor * jerk4.detach().clone()))
+        velocity_loss = loss(vel1, guiding_factor * vel1.detach().clone())
+        jerk_loss = loss(jerk1, guiding_factor * jerk1.detach().clone())
 
     return velocity_loss, jerk_loss
 
@@ -594,7 +582,7 @@ class Paule():
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_speech_classifier):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
@@ -609,7 +597,7 @@ class Paule():
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_tube_mel, pred_tube_semvec):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
                     velocity_loss = 4 * velocity_loss
@@ -623,7 +611,7 @@ class Paule():
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     velocity_loss = 2 * velocity_loss
                     jerk_loss = 2 * jerk_loss
                     semvec_loss = 10 * semvec_loss
@@ -634,7 +622,7 @@ class Paule():
             if self.use_speech_classifier:
                 def criterion(pred_mel, target_mel, cps, pred_speech_classifier):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
@@ -647,7 +635,7 @@ class Paule():
             elif self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, cps, pred_tube_mel):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     velocity_loss = 4 * velocity_loss
                     jerk_loss = 4 * jerk_loss
@@ -657,7 +645,7 @@ class Paule():
             else:
                 def criterion(pred_mel, target_mel, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     velocity_loss = 2 * velocity_loss
                     jerk_loss = 2 * jerk_loss
                     loss = mel_loss + velocity_loss + jerk_loss
@@ -667,7 +655,7 @@ class Paule():
             if self.use_speech_classifier:
                 def criterion(pred_semvec, target_semvec, cps, pred_speech_classifier):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
@@ -681,7 +669,7 @@ class Paule():
             elif self.use_somatosensory_feedback:
                 def criterion(pred_semvec, target_semvec, cps, pred_tube_semvec):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
                     velocity_loss = 4 * velocity_loss
                     jerk_loss = 4 * jerk_loss
@@ -692,7 +680,7 @@ class Paule():
             else:
                 def criterion(pred_semvec, target_semvec, cps):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=rmse_loss)
                     velocity_loss = 2 * velocity_loss
                     jerk_loss = 2 * jerk_loss
                     semvec_loss = 10 * semvec_loss
