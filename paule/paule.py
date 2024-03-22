@@ -507,7 +507,7 @@ class Paule():
             target_mel = self.mel_gen_model(mel_gen_noise, target_seq_length, mel_gen_semvec)
             target_mel = target_mel.detach().clone()
             target_sig, target_sr = mel_to_sig(target_mel.view(target_mel.shape[1], target_mel.shape[2]).cpu().numpy())
-        elif len(target_acoustic) == 2:
+        elif len(target_acoustic) == 2 or isinstance(target_acoustic, str):
             target_mel = librosa_melspec(target_sig, target_sr)
             target_mel = normalize_mel_librosa(target_mel)
             target_mel -= target_mel.min()
