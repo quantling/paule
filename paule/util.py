@@ -574,7 +574,7 @@ class RMSELoss(torch.nn.Module):
 rmse_loss = RMSELoss(eps=0)
 
 
-def calculate_five_point_stencil_without_padding(trajectory):
+def calculate_five_point_stencil_without_padding(trajectory, *, delta_t=1.0):
     """
     Caculates the five-point stencil as a numeric approximation of the first derivative.
 
@@ -597,13 +597,15 @@ def calculate_five_point_stencil_without_padding(trajectory):
 
     """
     xx = trajectory
-    return (-xx[:, 4:, :] + 8.0 * xx[:, 3:-1, :] - 8.0 * xx[:, 1:-3, :] + xx[:, :-4, :]) / 12.0
+    return (-xx[:, 4:, :] + 8.0 * xx[:, 3:-1, :] - 8.0 * xx[:, 1:-3, :] + xx[:, :-4, :]) / (12.0 * delta_t)
 
 
-def numeric_derivative(xx):
-    xx_prime = calculate_five_point_stencil_without_padding(xx)
-    xx_prime2 =  (xx[:, 3:-1, :] - xx[:, 2:-2, :]) / 2.0 + (xx[:, 2:-2, :] - xx[:, 1:-3, :]) / 2.0
-    return (xx_prime + xx_prime2) / 2
+def numeric_derivative(xx, *, delta_t=1.0):
+    #xx_prime = calculate_five_point_stencil_without_padding(xx, delta_t=delta_t)
+    #xx_prime2 =  (xx[:, 3:-1, :] - xx[:, 2:-2, :]) / (2.0 * delta_t) + (xx[:, 2:-2, :] - xx[:, 1:-3, :]) / (2.0 * delta_t)
+    xx_prime3 =  (xx[:, 2:, :] - xx[:, 1:-1, :]) / (2.0 * delta_t) + (xx[:, 1:-1, :] - xx[:, 0:-2, :]) / (2.0 * delta_t)
+    #return (xx_prime + xx_prime2) / 2
+    return xx_prime3
 
 
 def get_vel_acc_jerk(trajectory, *, lag=None):
