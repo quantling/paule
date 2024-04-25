@@ -601,14 +601,20 @@ def calculate_five_point_stencil_without_padding(trajectory, *, delta_t=1.0):
 
 
 def numeric_derivative(xx, *, delta_t=1.0):
-    #xx_prime = calculate_five_point_stencil_without_padding(xx, delta_t=delta_t)
-    #xx_prime2 =  (xx[:, 3:-1, :] - xx[:, 2:-2, :]) / (2.0 * delta_t) + (xx[:, 2:-2, :] - xx[:, 1:-3, :]) / (2.0 * delta_t)
-    xx_prime3 =  (xx[:, 2:, :] - xx[:, 1:-1, :]) / (2.0 * delta_t) + (xx[:, 1:-1, :] - xx[:, 0:-2, :]) / (2.0 * delta_t)
-    #return (xx_prime + xx_prime2) / 2
-    return xx_prime3
+    xx_prime = calculate_five_point_stencil_without_padding(xx, delta_t=delta_t)
+    return xx_prime
 
 
-def get_vel_acc_jerk(trajectory, *, lag=None):
+def local_linear(trajectory, *, delta_t=1.0):
+    """
+    A locally linear trajectory will return a torch.tensor of zeros.
+
+    """
+    tt = trajectory
+    return (2 * tt[:, 1:-1, :] - tt[:, :-2, :] - tt[:, 2:, :]) / (2 * delta_t)
+
+
+def get_vel_acc_jerk(trajectory, *, lag=None, delta_t=1.0):
     """
     Approximates the velocity, acceleration, jerk for the given trajectory for a given lag
 
@@ -625,9 +631,9 @@ def get_vel_acc_jerk(trajectory, *, lag=None):
     """
     if lag is not None:
         warnings.warn("lag should not used anymore and is ignored", DeprecationWarning, stacklevel=2)
-    velocity = numeric_derivative(trajectory)
-    acc = numeric_derivative(velocity)
-    jerk = numeric_derivative(acc)
+    velocity = numeric_derivative(trajectory, delta_t=delta_t)
+    acc = numeric_derivative(velocity, delta_t=delta_t)
+    jerk = numeric_derivative(acc, delta_t=delta_t)
     return velocity, acc, jerk
 
 
