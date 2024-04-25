@@ -44,10 +44,10 @@ from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk,
         cp_trajectory_loss, mel_to_sig, pad_batch_online,
         speak_and_extract_tube_information, normalize_tube,
-        get_area_info_within_oral_cavity, get_pretrained_weights_version)
+        get_area_info_within_oral_cavity, get_pretrained_weights_version, local_linear)
 
 from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
-        EmbeddingModel, Generator, NonLinearModel, SpeechNonSpeechTransformer)
+        EmbeddingModel, Generator, NonLinearModel, SpeechNonSpeechTransformer, LinearClassifier)
 
 from . import visualize
 
@@ -58,42 +58,32 @@ PlanningResults = namedtuple('PlanningResults', "planned_cp, initial_cp, initial
 PlanningResultsWithSpeechClassifier = namedtuple('PlanningResultsWithSpeechClassifier', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel, initial_pred_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, initial_prod_semvec, initial_pred_semvec, prod_semvec, pred_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, pred_speech_classifier_loss_steps, prod_speech_classifier_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss")
 PlanningResultsWithSomatosensory = namedtuple('PlanningResultsWithSomatosensory', "planned_cp, initial_cp, initial_sig, initial_sr, initial_prod_mel,initial_pred_mel, initial_prod_tube, initial_pred_tube, initial_prod_tube_mel, initial_pred_tube_mel, target_sig, target_sr, target_mel, prod_sig, prod_sr, prod_mel, pred_mel, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, initial_prod_semvec, initial_pred_semvec, initial_prod_tube_semvec, initial_pred_tube_semvec, prod_semvec, pred_semvec, prod_tube_semvec, pred_tube_semvec, prod_loss_steps, planned_loss_steps, planned_mel_loss_steps, vel_loss_steps, jerk_loss_steps, pred_semvec_loss_steps, prod_semvec_loss_steps, prod_tube_loss_steps, pred_tube_mel_loss_steps,prod_tube_mel_loss_steps, pred_tube_semvec_loss_steps, prod_tube_semvec_loss_steps, cp_steps, pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps, prod_mel_steps, pred_mel_steps, prod_tube_steps, pred_tube_steps, prod_tube_mel_steps, pred_tube_mel_steps, prod_tube_semvec_steps, pred_tube_semvec_steps, pred_model_loss, inv_model_loss, tube_model_loss, tube_mel_model_loss")
 
+
 BestSynthesisAcoustic = namedtuple('BestSynthesisAcoustic', "mel_loss, planned_cp, prod_sig, prod_mel, pred_mel")
 BestSynthesisSemantic = namedtuple('BestSynthesisSemantic', "semvec_loss, planned_cp, prod_sig, prod_semvec, pred_semvec")
 BestSynthesisSomatosensory = namedtuple('BestSynthesisSomatosensory',"tube_loss, tube_mel_loss, tube_semvec_loss, planned_cp, prod_sig, prod_tube, pred_tube, prod_tube_mel, pred_tube_mel, prod_tube_semvec, pred_tube_semvec")
 
+SubLosses = namedtuple('SubLosses', "mel_loss, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, speech_classifier_loss, tube_mel_loss, tube_semvec_loss")
+
 rmse_loss = RMSELoss(eps=0)
-l2 = MSELoss()
+mse_loss = l2 = MSELoss()
 l1 = L1Loss()
 bce_loss = torch.nn.BCEWithLogitsLoss()
 
 
 
-def velocity_jerk_loss(pred, loss, *, guiding_factor=None):
+def velocity_jerk_loss(pred, *, loss=rmse_loss, guiding_factor=None):
     """returns (velocity_loss, jerk_loss) tuple"""
-    vel1, acc1, jerk1 = get_vel_acc_jerk(pred)
-    vel2, acc2, jerk2 = get_vel_acc_jerk(pred, lag=2)
-    vel4, acc4, jerk4 = get_vel_acc_jerk(pred, lag=4)
+    #vel1, acc1, jerk1 = get_vel_acc_jerk(pred, delta_t=1.0/401)
+    vel1, acc1, jerk1 = get_vel_acc_jerk(pred, delta_t=1.0)
 
-    loss = rmse_loss
-
-    # in the lag calculation higher lags are already normalised to standard
-    # units
     if guiding_factor is None:
-        velocity_loss = (loss(vel1, torch.zeros_like(vel1))
-                         + loss(vel2, torch.zeros_like(vel2))
-                         + loss(vel4, torch.zeros_like(vel4)))
-        jerk_loss = (loss(jerk1, torch.zeros_like(jerk1))
-                     + loss(jerk2, torch.zeros_like(jerk2))
-                     + loss(jerk4, torch.zeros_like(jerk4)))
+        velocity_loss = loss(vel1, torch.zeros_like(vel1))
+        jerk_loss = loss(jerk1, torch.zeros_like(jerk1))
     else:
         assert 0.0 < guiding_factor < 1.0
-        velocity_loss = (loss(vel1, guiding_factor * vel1.detach().clone())
-                         + loss(vel2, guiding_factor * vel2.detach().clone())
-                         + loss(vel4, guiding_factor * vel4.detach().clone()))
-        jerk_loss = (loss(jerk1, guiding_factor * jerk1.detach().clone())
-                     + loss(jerk2, guiding_factor * jerk2.detach().clone())
-                     + loss(jerk4, guiding_factor * jerk4.detach().clone()))
+        velocity_loss = loss(vel1, guiding_factor * vel1.detach().clone())
+        jerk_loss = loss(jerk1, guiding_factor * jerk1.detach().clone())
 
     return velocity_loss, jerk_loss
 
@@ -218,9 +208,11 @@ class Paule():
             if speech_classifier:
                 self.speech_classifier = speech_classifier
             else:
-                self.speech_classifier = SpeechNonSpeechTransformer(input_dim=60, num_layers=3, nhead=6, output_dim=1)
+                self.speech_classifier = LinearClassifier(input_dim=60, output_dim=1)
+                #self.speech_classifier = SpeechNonSpeechTransformer(input_dim=60, num_layers=3, nhead=6, output_dim=1)
                 self.speech_classifier.load_state_dict(torch.load(
-                    os.path.join(DIR, "pretrained_models/speech_classifier/model_rec_as_nonspeech.pt"),
+                    os.path.join(DIR, "pretrained_models/speech_classifier/linear_model_rec_as_nonspeech.pt"),
+                    #os.path.join(DIR, "pretrained_models/speech_classifier/model_rec_as_nonspeech.pt"),
                            map_location=self.device))
                 self.speech_classifier = self.speech_classifier.double()
             self.speech_classifier = self.speech_classifier.to(self.device)
@@ -588,116 +580,188 @@ class Paule():
         xx_new.requires_grad_()
         xx_new.retain_grad()
 
+        MEL_WEIGHT = 5.0
+        VELOCITY_WEIGHT = 80.0  # alternative: 1000
+        JERK_WEIGHT = 400.0  # alternative: 4000
+        SEMANTIC_WEIGHT = 10.0
+        SPEECH_CLASSIFIER_WEIGHT = 0.1
+        LOCAL_LINEAR_WEIGHT = 100_000
+        TUBE_MEL_WEIGHT = MEL_WEIGHT
+        TUBE_SEMANTIC_WEIGHT = SEMANTIC_WEIGHT
+
 
         if objective == 'acoustic_semvec':
             if self.use_speech_classifier:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_speech_classifier):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    speech_classifier_loss = 0.1 * speech_classifier_loss
-                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss, semvec_loss, speech_classifier_loss
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    speech_classifier_loss = SPEECH_CLASSIFIER_WEIGHT * speech_classifier_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss + local_linear_loss
+                    return loss, SubLosses(mel_loss, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, speech_classifier_loss, None, None)
 
             elif self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps, pred_tube_mel, pred_tube_semvec):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    tube_mel_loss = tube_mel_loss
-                    tube_semvec_loss = 10 * tube_semvec_loss
-                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + tube_mel_loss + tube_semvec_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss, semvec_loss, tube_mel_loss, tube_semvec_loss
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    tube_mel_loss = TUBE_MEL_WEIGHT * tube_mel_loss
+                    tube_semvec_loss = TUBE_SEMANTIC_WEIGHT * tube_semvec_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + local_linear_loss + tube_mel_loss + tube_semvec_loss
+
+                    return loss, SubLosses(mel_loss, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, None, tube_mel_loss, tube_semvec_loss)
+
             else:
                 def criterion(pred_mel, target_mel, pred_semvec, target_semvec, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss, semvec_loss
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + semvec_loss + local_linear_loss
+
+                    return loss, SubLosses(mel_loss, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, None, None, None)
 
         elif objective == 'acoustic':
             if self.use_speech_classifier:
                 def criterion(pred_mel, target_mel, cps, pred_speech_classifier):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    speech_classifier_loss = 0.1 * speech_classifier_loss
-                    loss = mel_loss + velocity_loss + jerk_loss + speech_classifier_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss, speech_classifier_loss
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    speech_classifier_loss = SPEECH_CLASSIFIER_WEIGHT * speech_classifier_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + local_linear_loss + speech_classifier_loss
+
+                    return loss, SubLosses(mel_loss, None, velocity_loss, jerk_loss, local_linear_loss, speech_classifier_loss, None, None)
 
             elif self.use_somatosensory_feedback:
                 def criterion(pred_mel, target_mel, cps, pred_tube_mel):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
                     tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    tube_mel_loss = tube_mel_loss
-                    loss = mel_loss + velocity_loss + jerk_loss + tube_mel_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss, tube_mel_loss
+                    tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    tube_mel_loss = TUBE_MEL_WEIGHT * tube_mel_loss
+                    tube_semvec_loss = TUBE_SEMANTIC_WEIGHT * tube_semvec_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + local_linear_loss + tube_mel_loss + tube_semvec_loss
+                    return loss, SubLosses(mel_loss, None, velocity_loss, jerk_loss, local_linear_loss, None, tube_mel_loss, tube_semvec_loss)
+
             else:
                 def criterion(pred_mel, target_mel, cps):
                     mel_loss = rmse_loss(pred_mel, target_mel)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
-                    loss = mel_loss + velocity_loss + jerk_loss
-                    return loss, mel_loss, velocity_loss, jerk_loss
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
+
+                    mel_loss = MEL_WEIGHT * mel_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+
+                    loss = mel_loss + velocity_loss + jerk_loss + local_linear_loss
+                    return loss, SubLosses(mel_loss, None, velocity_loss, jerk_loss, local_linear_loss, None, None, None)
 
         elif objective == 'semvec':
             if self.use_speech_classifier:
                 def criterion(pred_semvec, target_semvec, cps, pred_speech_classifier):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
                     speech_classifier_loss = bce_loss(pred_speech_classifier,
                             torch.zeros_like(pred_speech_classifier,
                                 dtype=pred_speech_classifier.dtype))
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    speech_classifier_loss = 0.1 * speech_classifier_loss
-                    loss = velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss
-                    return loss, velocity_loss, jerk_loss, semvec_loss, speech_classifier_loss
+
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    speech_classifier_loss = SPEECH_CLASSIFIER_WEIGHT * speech_classifier_loss
+
+                    loss = velocity_loss + jerk_loss + semvec_loss + speech_classifier_loss + local_linear_loss
+                    return loss, SubLosses(None, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, speech_classifier_loss, None, None)
 
             elif self.use_somatosensory_feedback:
                 def criterion(pred_semvec, target_semvec, cps, pred_tube_semvec):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
+                    tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
                     tube_semvec_loss = rmse_loss(pred_tube_semvec, target_semvec)
-                    velocity_loss = 4 * velocity_loss
-                    jerk_loss = 4 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    tube_semvec_loss = 10 * tube_semvec_loss
-                    loss = velocity_loss + jerk_loss + semvec_loss + tube_semvec_loss
-                    return loss, velocity_loss, jerk_loss, semvec_loss, tube_semvec_loss
+
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+                    tube_mel_loss = TUBE_MEL_WEIGHT * tube_mel_loss
+                    tube_semvec_loss = TUBE_SEMANTIC_WEIGHT * tube_semvec_loss
+
+                    loss = velocity_loss + jerk_loss + semvec_loss + local_linear_loss + tube_mel_loss + tube_semvec_loss
+
+                    return loss, SubLosses(None, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, None, tube_mel_loss, tube_semvec_loss)
+
             else:
                 def criterion(pred_semvec, target_semvec, cps):
                     semvec_loss = rmse_loss(pred_semvec, target_semvec)
-                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, rmse_loss)
-                    velocity_loss = 2 * velocity_loss
-                    jerk_loss = 2 * jerk_loss
-                    semvec_loss = 10 * semvec_loss
-                    loss = velocity_loss + jerk_loss + semvec_loss
-                    return loss, velocity_loss, jerk_loss, semvec_loss
+                    velocity_loss, jerk_loss = velocity_jerk_loss(cps, loss=mse_loss)
+                    ll = local_linear(cps)
+                    local_linear_loss = mse_loss(ll, torch.zeros_like(ll, dtype=ll.dtype))
+
+                    semvec_loss = SEMANTIC_WEIGHT * semvec_loss
+                    velocity_loss = VELOCITY_WEIGHT * velocity_loss
+                    jerk_loss = JERK_WEIGHT * jerk_loss
+                    local_linear_loss = LOCAL_LINEAR_WEIGHT * local_linear_loss
+
+                    loss = velocity_loss + jerk_loss + semvec_loss + local_linear_loss
+
+                    return loss, SubLosses(None, semvec_loss, velocity_loss, jerk_loss, local_linear_loss, None, None, None)
 
         else:
             raise ValueError("objective has to be one of 'acoustic_semvec', 'acoustic' or 'semvec'")
@@ -838,6 +902,8 @@ class Paule():
                 optimizer.zero_grad()
 
                 pred_mel = self.pred_model(xx_new)
+                if self.use_speech_classifier:
+                    pred_speech_classifier = self.speech_classifier(pred_mel)
                 if self.use_somatosensory_feedback:
                     pred_tube = self.cp_tube_model(xx_new)
                     pred_tube.retain_grad()
@@ -849,57 +915,54 @@ class Paule():
                     pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                     pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
 
-                    if self.use_speech_classifier:
-                        pred_speech_classifier = self.speech_classifier(pred_mel)
                     if self.use_somatosensory_feedback:
                         tube_seq_length = pred_tube.shape[1]
                         self.tube_embedder = self.tube_embedder.train()
                         pred_tube_semvec = self.tube_embedder(pred_tube, (torch.tensor(tube_seq_length),))
                         pred_tube_semvec_steps_ii.append(pred_tube_semvec[-1, :].detach().cpu().numpy().copy())
 
-
-                # discrepancy,mel_loss, vel_loss, jerk_loss, pred_mel = constrained_criterion(tanh_straight_through(xx_new), target_mel)
                 if objective == 'acoustic':
                     if self.use_speech_classifier:
-                        discrepancy, mel_loss, vel_loss, jerk_loss, speech_classifier_loss = criterion(pred_mel, target_mel, xx_new, pred_speech_classifier)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, xx_new, pred_speech_classifier)
                     elif self.use_somatosensory_feedback:
-                        discrepancy, mel_loss, vel_loss, jerk_loss, tube_mel_loss = criterion(pred_mel, target_mel, xx_new, pred_tube_mel)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, xx_new, pred_tube_mel)
                     else:
-                        discrepancy, mel_loss, vel_loss, jerk_loss = criterion(pred_mel, target_mel, xx_new)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, xx_new)
 
                     if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
-                        planned_mel_loss_steps.append(float(mel_loss.item()))
-                        vel_loss_steps.append(float(vel_loss.item()))
-                        jerk_loss_steps.append(float(jerk_loss.item()))
+                        planned_mel_loss_steps.append(float(sub_loss.mel_loss.item()))
+                        vel_loss_steps.append(float(sub_loss.velocity_loss.item()))
+                        jerk_loss_steps.append(float(sub_loss.jerk_loss.item()))
                         if self.use_speech_classifier:
-                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
+                            pred_speech_classifier_loss_steps.append(float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
-                            pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
+                            pred_tube_mel_loss_steps.append(float(sub_loss.tube_mel_loss.item()))
 
                         if log_semantics:
                             seq_length = pred_mel.shape[1]
                             pred_semvec = self.embedder(pred_mel, (torch.tensor(seq_length),))
                             pred_semvec_steps_ii.append(pred_semvec[-1, :].detach().cpu().numpy().copy())
-                            semvec_loss = float(rmse_loss(pred_semvec, target_semvec).item())
+                            semvec_loss = SEMANTIC_WEIGHT * float(rmse_loss(pred_semvec, target_semvec).item())
                             pred_semvec_loss_steps.append(semvec_loss)
                             if self.use_somatosensory_feedback:
                                 tube_seq_length = pred_tube.shape[1]
                                 pred_tube_semvec = self.tube_embedder(pred_tube, (torch.tensor(tube_seq_length),))
                                 pred_tube_semvec_steps_ii.append(pred_tube_semvec[-1, :].detach().cpu().numpy().copy())
-                                tube_semvec_loss = 10*float(rmse_loss(pred_tube_semvec, target_semvec).item())
+                                tube_semvec_loss = TUBE_SEMANTIC_WEIGHT * float(rmse_loss(pred_tube_semvec, target_semvec).item())
                                 pred_tube_semvec_loss_steps.append(tube_semvec_loss)
 
                     if verbose:
                         print("Iteration %d" % ii)
                         print("Planned Loss: ", float(discrepancy.item()))
-                        print("Mel Loss: ", float(mel_loss.item()))
-                        print("Vel Loss: ", float(vel_loss.item()))
-                        print("Jerk Loss: ", float(jerk_loss.item()))
+                        print("Mel Loss: ", float(sub_loss.mel_loss.item()))
+                        print("Vel Loss: ", float(sub_loss.velocity_loss.item()))
+                        print("Jerk Loss: ", float(sub_loss.jerk_loss.item()))
+                        print("Local Linear Loss: ", float(sub_loss.local_linear_loss.item()))
                         if self.use_speech_classifier:
-                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
+                            print("Speech Classifier Loss: ", float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
-                            print("Tube Mel Loss: ", float(tube_mel_loss.item()))
+                            print("Tube Mel Loss: ", float(sub_loss.tube_mel_loss.item()))
                         if log_semantics:
                             print("Semvec Loss: ", float(semvec_loss))
                             if self.use_somatosensory_feedback:
@@ -907,76 +970,72 @@ class Paule():
 
                 elif objective == 'acoustic_semvec':
                     if self.use_speech_classifier:
-                        discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss, speech_classifier_loss = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new, pred_speech_classifier)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new, pred_speech_classifier)
                     elif self.use_somatosensory_feedback:
-                        discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss, tube_mel_loss, tube_semvec_loss = criterion(pred_mel, target_mel,
-                                                                                            pred_semvec, target_semvec,
-                                                                                            xx_new, pred_tube_mel, pred_tube_semvec)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new, pred_tube_mel, pred_tube_semvec)
                     else:
-                        discrepancy, mel_loss, vel_loss, jerk_loss, semvec_loss = criterion(pred_mel, target_mel,
-                                                                                            pred_semvec, target_semvec,
-                                                                                            xx_new)
+                        discrepancy, sub_loss = criterion(pred_mel, target_mel, pred_semvec, target_semvec, xx_new)
                     if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
-                        planned_mel_loss_steps.append(float(mel_loss.item()))
-                        vel_loss_steps.append(float(vel_loss.item()))
-                        jerk_loss_steps.append(float(jerk_loss.item()))
-                        pred_semvec_loss_steps.append(float(semvec_loss.item()))
+                        planned_mel_loss_steps.append(float(sub_loss.mel_loss.item()))
+                        vel_loss_steps.append(float(sub_loss.velocity_loss.item()))
+                        jerk_loss_steps.append(float(sub_loss.jerk_loss.item()))
+                        pred_semvec_loss_steps.append(float(sub_loss.semvec_loss.item()))
                         if self.use_speech_classifier:
-                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
+                            pred_speech_classifier_loss_steps.append(float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
-                            pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
-                            pred_tube_semvec_loss_steps.append(float(tube_semvec_loss.item()))
+                            pred_tube_mel_loss_steps.append(float(sub_loss.tube_mel_loss.item()))
+                            pred_tube_semvec_loss_steps.append(float(sub_loss.tube_semvec_loss.item()))
 
                     if verbose:
                         print("Iteration %d" % ii)
                         print("Planned Loss: ", float(discrepancy.item()))
-                        print("Mel Loss: ", float(mel_loss.item()))
-                        print("Vel Loss: ", float(vel_loss.item()))
-                        print("Jerk Loss: ", float(jerk_loss.item()))
-                        print("Semvec Loss: ", float(semvec_loss.item()))
+                        print("Mel Loss: ", float(sub_loss.mel_loss.item()))
+                        print("Vel Loss: ", float(sub_loss.velocity_loss.item()))
+                        print("Jerk Loss: ", float(sub_loss.jerk_loss.item()))
+                        print("Local Linear Loss: ", float(sub_loss.local_linear_loss.item()))
+                        print("Semvec Loss: ", float(sub_loss.semvec_loss.item()))
                         if self.use_speech_classifier:
-                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
+                            print("Speech Classifier Loss: ", float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
-                            print("Tube Mel Loss: ", float(tube_mel_loss.item()))
-                            print("Tube Semvec Loss: ", float(tube_semvec_loss.item()))
+                            print("Tube Mel Loss: ", float(sub_loss.tube_mel_loss.item()))
+                            print("Tube Semvec Loss: ", float(sub_loss.tube_semvec_loss.item()))
 
                 elif objective == 'semvec':
                     if self.use_speech_classifier:
-                        discrepancy, vel_loss, jerk_loss, semvec_loss, speech_classifier_loss = criterion(pred_semvec, target_semvec, xx_new, pred_speech_classifier)
+                        discrepancy, sub_loss = criterion(pred_semvec, target_semvec, xx_new, pred_speech_classifier)
                     elif self.use_somatosensory_feedback:
-                        discrepancy, vel_loss, jerk_loss, semvec_loss, tube_semvec_loss = criterion(pred_semvec, target_semvec, xx_new, pred_tube_semvec)
-                        mel_loss = rmse_loss(pred_mel, target_mel)
-                        tube_mel_loss = rmse_loss(pred_tube_mel, target_mel)
+                        discrepancy, sub_loss = criterion(pred_semvec, target_semvec, xx_new, pred_tube_semvec)
+                        tube_mel_loss = TUBE_MEL_WEIGHT * rmse_loss(pred_tube_mel, target_mel)
                     else:
-                        discrepancy, vel_loss, jerk_loss, semvec_loss = criterion(pred_semvec, target_semvec, xx_new)
-                        mel_loss = rmse_loss(pred_mel, target_mel)
+                        discrepancy, sub_loss = criterion(pred_semvec, target_semvec, xx_new)
+                    mel_loss = MEL_WEIGHT * rmse_loss(pred_mel, target_mel)
 
                     if (ii + 1) % log_ii == 0:
                         planned_loss_steps.append(float(discrepancy.item()))
-                        vel_loss_steps.append(float(vel_loss.item()))
-                        jerk_loss_steps.append(float(jerk_loss.item()))
-                        pred_semvec_loss_steps.append(float(semvec_loss.item()))
+                        vel_loss_steps.append(float(sub_loss.velocity_loss.item()))
+                        jerk_loss_steps.append(float(sub_loss.jerk_loss.item()))
+                        pred_semvec_loss_steps.append(float(sub_loss.semvec_loss.item()))
                         planned_mel_loss_steps.append(float(mel_loss.item()))
 
                         if self.use_speech_classifier:
-                            pred_speech_classifier_loss_steps.append(float(speech_classifier_loss.item()))
+                            pred_speech_classifier_loss_steps.append(float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
-                            pred_tube_semvec_loss_steps.append(float(tube_semvec_loss.item()))
+                            pred_tube_semvec_loss_steps.append(float(sub_loss.tube_semvec_loss.item()))
                             pred_tube_mel_loss_steps.append(float(tube_mel_loss.item()))
 
                     if verbose:
                         print("Iteration %d" % ii)
                         print("Planned Loss: ", float(discrepancy.item()))
                         print("Mel Loss: ", float(mel_loss.item()))
-                        print("Vel Loss: ", float(vel_loss.item()))
-                        print("Jerk Loss: ", float(jerk_loss.item()))
-                        print("Semvec Loss: ", float(semvec_loss.item()))
+                        print("Vel Loss: ", float(sub_loss.velocity_loss.item()))
+                        print("Jerk Loss: ", float(sub_loss.jerk_loss.item()))
+                        print("Semvec Loss: ", float(sub_loss.semvec_loss.item()))
                         if self.use_speech_classifier:
-                            print("Speech Classifier Loss: ", float(speech_classifier_loss.item()))
+                            print("Speech Classifier Loss: ", float(sub_loss.speech_classifier_loss.item()))
                         if self.use_somatosensory_feedback:
                             print("Tube Mel Loss: ", float(tube_mel_loss.item()))
-                            print("Tube Semvec Loss: ", float(tube_semvec_loss.item()))
+                            print("Tube Semvec Loss: ", float(sub_loss.tube_semvec_loss.item()))
 
                 else:
                     raise ValueError(f'unkown objective {objective}')
@@ -985,11 +1044,10 @@ class Paule():
 
                 # if verbose:
                 # print(f"grad.abs().max() {grad.abs().max()}")
-                if xx_new.grad.max() > 10:
-                    if verbose:
+                if verbose:
+                    if xx_new.grad.max() > 10:
                         print("WARNING: gradient is larger than 10")
-                if xx_new.grad.min() < -10:
-                    if verbose:
+                    if xx_new.grad.min() < -10:
                         print("WARNING: gradient is smaller than -10")
 
                 if log_gradients:
@@ -1021,7 +1079,7 @@ class Paule():
                         prod_tube_loss = rmse_loss(pred_tube, prod_tube)
                         prod_tube_loss_steps.append(float(prod_tube_loss.item()))
 
-                        prod_tube_mel_loss = rmse_loss(prod_tube_mel, target_mel)
+                        prod_tube_mel_loss = TUBE_MEL_WEIGHT * rmse_loss(prod_tube_mel, target_mel)
                         prod_tube_mel_loss_steps.append(float(prod_tube_mel_loss.item()))
 
                         pred_tube_mel_steps_ii.append(pred_tube_mel[-1, :, :].detach().cpu().numpy().copy())
@@ -1044,6 +1102,7 @@ class Paule():
                     pred_mel_steps_ii.append(pred_mel[-1, :, :].detach().cpu().numpy().copy())
 
                     prod_loss = rmse_loss(prod_mel, target_mel)
+                    prod_loss *= MEL_WEIGHT
                     prod_loss_steps.append(float(prod_loss.item()))
 
                     if self.use_speech_classifier:
@@ -1051,6 +1110,7 @@ class Paule():
                         prod_speech_classifier_loss = bce_loss(
                                 prod_speech_classifier,
                                 torch.zeros_like(prod_speech_classifier, dtype=prod_speech_classifier.dtype))
+                        prod_speech_classifier_loss *= SPEECH_CLASSIFIER_WEIGHT
 
                         prod_speech_classifier_loss_steps.append(float(
                             prod_speech_classifier_loss.item()))
@@ -1067,7 +1127,8 @@ class Paule():
                         prod_semvec = self.embedder(prod_mel, (torch.tensor(prod_mel.shape[1]),))
                         prod_semvec_steps_ii.append(prod_semvec[-1, :].detach().cpu().numpy().copy())
 
-                        prod_semvec_loss = 10*rmse_loss(prod_semvec, target_semvec)
+                        prod_semvec_loss = rmse_loss(prod_semvec, target_semvec)
+                        prod_semvec_loss *= SEMANTIC_WEIGHT
                         prod_semvec_loss_steps.append(float(prod_semvec_loss.item()))
 
                         if self.use_somatosensory_feedback:
@@ -1075,7 +1136,8 @@ class Paule():
                             prod_tube_semvec = self.tube_embedder(prod_tube, (torch.tensor(prod_tube.shape[1]),))
                             prod_tube_semvec_steps_ii.append(prod_tube_semvec[-1, :].detach().cpu().numpy().copy())
 
-                            prod_tube_semvec_loss = 10*rmse_loss(prod_tube_semvec, target_semvec)
+                            prod_tube_semvec_loss = rmse_loss(prod_tube_semvec, target_semvec)
+                            prod_tube_semvec_loss *= TUBE_SEMANTIC_WEIGHT
                             prod_tube_semvec_loss_steps.append(float(prod_tube_semvec_loss.item()))
 
                         if verbose:
