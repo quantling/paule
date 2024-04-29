@@ -72,9 +72,9 @@ def double_sequence(x):
     x2 = (x[:, :-1, :] + x[:, 1:, :]) / 2.0
     x2 = torch.cat([x2, x1[:, -1, :].view(x1.shape[0], 1, x1.shape[2])], axis=1)
 
-    #x = torch.zeros((x1.shape[0], x1.shape[1] + x2.shape[1], x1.shape[2]), dtype=torch.double, requires_grad=True, device=DEVICE)
-    x = torch.zeros((x1.shape[0], x1.shape[1] + x2.shape[1], x1.shape[2]), dtype=torch.double,
-                    requires_grad=False, device = x.device)
+    #x = torch.zeros((x1.shape[0], x1.shape[1] + x2.shape[1], x1.shape[2]), dtype=x.dtype, requires_grad=True, device=DEVICE)
+    x = torch.zeros((x1.shape[0], x1.shape[1] + x2.shape[1], x1.shape[2]), dtype=x.dtype,
+                    requires_grad=False, device=x.device)
     x[:, ::2, :] = x1  # Index every second row, starting from 0
     x[:, 1::2, :] = x2
 

@@ -104,11 +104,12 @@ class Paule():
                  tube_mel_model=None, tube_mel_optimizer=None, tube_embedder=None,
                  continue_data=None, device=torch.device('cpu'), smiling=False,
                  use_speech_classifier=False, speech_classifier=None,
-                 speech_classifier_optimizer=None):
+                 speech_classifier_optimizer=None, dtype=torch.float64):
 
         # load the pred_model, inv_model and embedder here
         # for cpu
         self.device = device
+        self.dtype = dtype
 
         self.smiling = smiling
 
@@ -121,7 +122,7 @@ class Paule():
         if pred_model:
             self.pred_model = pred_model
         else:
-            self.pred_model = ForwardModel(num_lstm_layers=1, hidden_size=720).double()
+            self.pred_model = ForwardModel(num_lstm_layers=1, hidden_size=720).to(dtype=self.dtype)
             self.pred_model.load_state_dict(
                 torch.load(os.path.join(DIR, "pretrained_models/predictive/pred_model_common_voice_1_720_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
                            map_location=self.device))
@@ -130,7 +131,7 @@ class Paule():
             #                         mode="pred",
             #                         hidden_units=30000,
             #                         on_full_sequence=True,
-            #                         add_vel_and_acc=False).double()
+            #                         add_vel_and_acc=False).to(dtype=self.dtype)
             #self.pred_model.load_state_dict(
             #    torch.load(os.path.join(DIR,
             #                            "pretrained_models/predictive/pred_leaky_relu_non_linear_30000_hidden_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
@@ -142,7 +143,7 @@ class Paule():
         if inv_model:
             self.inv_model = inv_model
         else:
-            self.inv_model = InverseModelMelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).double()
+            self.inv_model = InverseModelMelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).to(dtype=self.dtype)
             self.inv_model.load_state_dict(
                 torch.load(os.path.join(DIR, "pretrained_models/inverse/inv_model_common_voice_3_1_720_5_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
                            map_location=self.device))
@@ -151,7 +152,7 @@ class Paule():
             #                                 mode="inv",
             #                                 hidden_units=30000,
             #                                 on_full_sequence=True,
-            #                                 add_vel_and_acc=False).double()
+            #                                 add_vel_and_acc=False).to(dtype=self.dtype)
             #self.inv_model.load_state_dict(
             #    torch.load(os.path.join(DIR,
             #                            "pretrained_models/inverse/inv_leaky_relu_non_linear_30000_hidden_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
@@ -162,7 +163,7 @@ class Paule():
         if embedder:
             self.embedder = embedder
         else:
-            self.embedder = EmbeddingModel(num_lstm_layers=2, hidden_size=720).double()
+            self.embedder = EmbeddingModel(num_lstm_layers=2, hidden_size=720).to(dtype=self.dtype)
             self.embedder.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/embedder/embed_model_common_voice_syn_rec_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                 map_location=self.device))
@@ -172,7 +173,7 @@ class Paule():
             #                                mode="embed",
             #                                hidden_units=30000,
             #                                on_full_sequence=True,
-            #                                add_vel_and_acc=False).double()
+            #                                add_vel_and_acc=False).to(dtype=self.dtype)
             #self.embedder.load_state_dict(
             #    torch.load(os.path.join(DIR,
             #                            "pretrained_models/embedder/model_embed_sum_leaky_relu_non_linear_30000_hidden_noise_6e05_lr_00001_200.pt"),
@@ -184,7 +185,7 @@ class Paule():
         if cp_gen_model:
             self.cp_gen_model = cp_gen_model
         else:
-            self.cp_gen_model = Generator().double()
+            self.cp_gen_model = Generator().to(dtype=self.dtype)
             self.cp_gen_model.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/cp_gan/conditional_trained_cp_generator_whole_critic_it_5_10_20_40_80_100_415.pt"),
                 map_location=self.device))
@@ -195,7 +196,7 @@ class Paule():
         if mel_gen_model:
             self.mel_gen_model = mel_gen_model
         else:
-            self.mel_gen_model = Generator(output_size=60).double()
+            self.mel_gen_model = Generator(output_size=60).to(dtype=self.dtype)
             self.mel_gen_model.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_400.pt"),
                                                           map_location=self.device))
@@ -214,7 +215,7 @@ class Paule():
                     os.path.join(DIR, "pretrained_models/speech_classifier/linear_model_rec_as_nonspeech.pt"),
                     #os.path.join(DIR, "pretrained_models/speech_classifier/model_rec_as_nonspeech.pt"),
                            map_location=self.device))
-                self.speech_classifier = self.speech_classifier.double()
+                self.speech_classifier = self.speech_classifier.to(dtype=self.dtype)
             self.speech_classifier = self.speech_classifier.to(self.device)
             self.speech_classifier.eval()
 
@@ -228,7 +229,7 @@ class Paule():
                                              hidden_size=360,
                                              output_size=10,
                                              input_size=30,
-                                             apply_half_sequence=False).double()
+                                             apply_half_sequence=False).to(dtype=self.dtype)
                 self.cp_tube_model.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/cp_to_tube_model_1_360_lr_0001_50_00001_100.pt"),
                                                          map_location=self.device))
@@ -242,7 +243,7 @@ class Paule():
                      hidden_size = 360,
                      output_size = 60,
                     input_size = 10,
-                    apply_half_sequence=True).double()
+                    apply_half_sequence=True).to(dtype=self.dtype)
                 self.tube_mel_model.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/tube_to_mel_model_1_360_lr_0001_50_00001_100.pt"),
                                                           map_location=self.device))
@@ -256,7 +257,7 @@ class Paule():
                                                     num_lstm_layers=2,
                                                     hidden_size=720,
                                                     dropout=0.7,
-                                                    post_upsampling_size=0).double()
+                                                    post_upsampling_size=0).to(dtype=self.dtype)
                 self.tube_embedder.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/tube_to_vector_model_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
                            map_location=self.device))

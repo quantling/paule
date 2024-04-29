@@ -112,12 +112,12 @@ tube_theoretical_means = np.mean(np.stack([tube_mins,tube_maxs]),axis=0)
 tube_theoretical_stds = np.std(np.stack([tube_mins,tube_maxs]),axis=0)
 
 
-def librosa_melspec(wav, sample_rate):
+def librosa_melspec(wav, sample_rate, *, dtype=np.float64):
     wav = librosa.resample(wav, orig_sr=sample_rate, target_sr=44100,
             res_type='kaiser_best', fix=True, scale=False)
     melspec = librosa.feature.melspectrogram(y=wav, n_fft=1024, hop_length=220, n_mels=60, sr=44100, power=1.0, fmin=10, fmax=12000)
     melspec_db = librosa.amplitude_to_db(melspec, ref=0.15)
-    return np.array(melspec_db.T, order='C', dtype=np.float64)
+    return np.array(melspec_db.T, order='C', dtype=dtype)
 
 
 def normalize_cp(cp):
