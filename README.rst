@@ -26,7 +26,7 @@ Installation
 Overview
 --------
 
-.. image:: https://raw.githubusercontent.com/quantling/paule/main/docs/figure/framework_simlified.png
+.. image:: https://raw.githubusercontent.com/quantling/paule/main/docs/figure/framework_simplified.png
   :width: 800
   :alt: Box and arrow overview of the PAULE model.
 
