@@ -4,6 +4,7 @@ This module contains useful functions to visualize and safe results.
 """
 
 import os
+import pickle
 
 import soundfile as sf
 from matplotlib import pyplot as plt
@@ -19,6 +20,10 @@ def visualize_results(results, condition='prefix', folder='data'):
     Stores all results in data/ folder.
 
     """
+    if isinstance(results, str):
+        with open(results, 'rb') as pfile:
+            results = pickle.load(pfile)
+
     base_name = os.path.join(folder, f'{condition}')
 
     # save mel plot
