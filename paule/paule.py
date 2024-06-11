@@ -506,7 +506,7 @@ class Paule():
         elif target_acoustic is None:
             mel_gen_noise = torch.randn(1, 1, 100).to(self.device)
             if not isinstance(target_semvec, torch.Tensor):
-                target_semvec = torch.tensor(target_semvec)
+                target_semvec = torch.tensor(target_semvec, device=self.device)
             mel_gen_semvec = target_semvec.view(1, 300).detach().clone()
             target_mel = self.mel_gen_model(mel_gen_noise, target_seq_length, mel_gen_semvec)
             target_mel = target_mel.detach().clone()
@@ -526,7 +526,7 @@ class Paule():
                 target_semvec = self.embedder(target_mel, (torch.tensor(target_mel.shape[1]),))
         else:
             if not isinstance(target_semvec, torch.Tensor):
-                target_semvec = torch.tensor(target_semvec)
+                target_semvec = torch.tensor(target_semvec, device=self.device)
             target_semvec = target_semvec.view(1, 300).detach().clone()
         target_semvec = target_semvec.to(self.device)
 
