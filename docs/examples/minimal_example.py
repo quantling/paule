@@ -10,7 +10,8 @@ from paule import paule, util, visualize
 util.download_pretrained_weights()
 
 #paule_model = paule.Paule(device=torch.device('cuda'), use_somatosensory_feedback=True)
-paule_model = paule.Paule(device=torch.device('cpu'), use_somatosensory_feedback=True)
+paule_model = paule.Paule(device=torch.device('cpu'),
+        use_somatosensory_feedback=False, use_speech_classifier=True)
 
 #target_acoustic = '000003-Wissenschaft.wav'
 #target_acoustic = 'froehliche_weihnachten.flac'
