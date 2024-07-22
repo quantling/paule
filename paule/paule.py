@@ -49,7 +49,7 @@ from .util import (speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa,
 from .models import (ForwardModel, InverseModelMelTimeSmoothResidual,
         EmbeddingModel, Generator, NonLinearModel, SpeechNonSpeechTransformer, LinearClassifier)
 
-from . import visualize
+from . import visualize, util
 
 DIR = os.path.dirname(__file__)
 
@@ -326,6 +326,10 @@ class Paule():
         self.best_synthesis_semantic = None
         if self.use_somatosensory_feedback:
             self.best_synthesis_somatosensory = None
+
+        self.cp_theoretical_means = torch.tensor(util.cp_theoretical_means, device=self.device)
+        self.cp_theoretical_stds = torch.tensor(util.cp_theoretical_stds, device=self.device)
+
 
     def create_epoch_batches(self, df_length, batch_size, shuffle=True, same_size_batching=False, sorted_training_length_keys=None, training_length_dict=None):
         """
@@ -1559,6 +1563,14 @@ class Paule():
                     prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss)
 
 
+    def normalize_cp(self, cp):
+        return (cp - self.cp_theoretical_means) / self.cp_theoretical_stds
+
+
+    def inv_normalize_cp(self, norm_cp):
+        return self.cp_theoretical_stds * norm_cp + self.cp_theoretical_means
+
+
     def _apply_restriction(self, xx_new):
         #Vocal tract parameters: "HX HY JX JA LP LD VS VO TCX TCY TTX TTY TBX TBY TRX TRY TS1 TS2 TS3"
         #Glottis parameters: "f0 pressure x_bottom x_top chink_area lag rel_amp double_pulsing pulse_skewness flutter aspiration_strength "
@@ -1572,11 +1584,11 @@ class Paule():
                 # define tongue tip relative to tongue blade
                 restricted_cp = xx_new.data
                 #restricted_cp = xx_new.permute(0, 2, 1)  # batch, seq, channel
-                restricted_cp = inv_normalize_cp(restricted_cp)
+                restricted_cp = self.inv_normalize_cp(restricted_cp)
                 # restrict TTX to be 1cm more frontal TBX
                 restricted_cp[:, :, 10] = restricted_cp[:, :, 12] + 1.0
                 # restrict TTY to be 0.5cm below TBY
                 restricted_cp[:, :, 11] = restricted_cp[:, :, 13] - 0.5
-                xx_new.data = normalize_cp(restricted_cp)
+                xx_new.data = self.normalize_cp(restricted_cp)
         return xx_new
 
