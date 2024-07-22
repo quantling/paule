@@ -40,7 +40,7 @@ random.seed(20200905)
 
 tqdm.pandas()
 
-from .util import (speak, inv_normalize_cp, normalize_mel_librosa,
+from .util import (speak, normalize_cp, inv_normalize_cp, normalize_mel_librosa,
         stereo_to_mono, librosa_melspec, RMSELoss, get_vel_acc_jerk,
         cp_trajectory_loss, mel_to_sig, pad_batch_online,
         speak_and_extract_tube_information, normalize_tube,
@@ -102,15 +102,34 @@ class Paule():
                  embedder=None, cp_gen_model=None, mel_gen_model=None,
                  use_somatosensory_feedback=False, cp_tube_model=None, tube_optimizer=None,
                  tube_mel_model=None, tube_mel_optimizer=None, tube_embedder=None,
-                 continue_data=None, device=torch.device('cpu'), smiling=False,
+                 continue_data=None, device=torch.device('cpu'), restriction=None,
                  use_speech_classifier=False, speech_classifier=None,
                  speech_classifier_optimizer=None):
+        """
+        The __init__ function can overwrite some of the default behavior of
+        PAULE. All arguments are key word arguments.
+
+        Parameters
+        ==========
+        pred_model : torch.Model
+            alternative predictive model
+        pred_optimizer : torch.Model
+            alternative predictive model
+
+            ...
+        restriction : {None, "smiling", "restricted_tongue"}
+            a restriction on the geometry of the vocal tract
+        use_somatosensory_feedback : {False, True}
+        use_speech_classifier : {False, True}
+
+        """
 
         # load the pred_model, inv_model and embedder here
         # for cpu
         self.device = device
-
-        self.smiling = smiling
+        
+        assert restriction in (None, "smiling", "restricted_tongue")
+        self.restriction = restriction
 
         print(f'Version of pretrained weights is "{get_pretrained_weights_version()}"')
 
@@ -419,6 +438,7 @@ class Paule():
         target_semvec : torch.tensor
         target_seq_length : int (None)
         initial_cp : torch.tensor
+            seq_length, vocal tract parameters
         past_cp : torch.tensor
             cp that are already executed, but should be conditioned on they
             will be concatenated to the beginning of the initial_cp
@@ -574,11 +594,15 @@ class Paule():
             past_cp_torch = past_cp_torch.to(self.device)
 
         xx_new = initial_cp.copy()
+        # batch size, seq length, vocal tract parameters (channels)
         xx_new.shape = (1, xx_new.shape[0], xx_new.shape[1])
         xx_new = torch.from_numpy(xx_new)
         xx_new = xx_new.to(self.device)
         xx_new.requires_grad_()
         xx_new.retain_grad()
+
+        xx_new = self._apply_restriction(xx_new)
+
 
         MEL_WEIGHT = 5.0
         VELOCITY_WEIGHT = 80.0  # alternative: 1000
@@ -1189,15 +1213,9 @@ class Paule():
 
                 optimizer.step()
 
-                with torch.no_grad():
-                    xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
-                    if self.smiling:
-                        #Vocal tract parameters: "HX HY JX JA LP LD VS VO TCX TCY TTX TTY TBX TBY TRX TRY TS1 TS2 TS3"
-                        #Glottis parameters: "f0 pressure x_bottom x_top chink_area lag rel_amp double_pulsing pulse_skewness flutter aspiration_strength "
-                        # keep LP and HY at the maximum
-                        xx_new.data[:, :, 4] = -1.0  # "LP"
-                        xx_new.data[:, :, 1] = 1.0  # "HY"
+                xx_new = self._apply_restriction(xx_new)
 
+                with torch.no_grad():
                     if not past_cp is None:
                         xx_new.data[:, 0:past_cp_torch.shape[0], :] = past_cp_torch
 
@@ -1539,4 +1557,26 @@ class Paule():
                     pred_semvec_loss_steps, prod_semvec_loss_steps, cp_steps,
                     pred_semvec_steps, prod_semvec_steps, grad_steps, sig_steps,
                     prod_mel_steps, pred_mel_steps, pred_model_loss, inv_model_loss)
+
+
+    def _apply_restriction(self, xx_new):
+        #Vocal tract parameters: "HX HY JX JA LP LD VS VO TCX TCY TTX TTY TBX TBY TRX TRY TS1 TS2 TS3"
+        #Glottis parameters: "f0 pressure x_bottom x_top chink_area lag rel_amp double_pulsing pulse_skewness flutter aspiration_strength "
+        with torch.no_grad():
+            xx_new.data = xx_new.data.clamp(-1.05, 1.05) # clamp between -1.05 and 1.05
+            if self.restriction == "smiling":
+                # keep LP and HY at the maximum
+                xx_new.data[:, :, 4] = -1.0  # "LP"
+                xx_new.data[:, :, 1] = 1.0  # "HY"
+            elif self.restriction == "restricted_tongue":
+                # define tongue tip relative to tongue blade
+                restricted_cp = xx_new.data
+                #restricted_cp = xx_new.permute(0, 2, 1)  # batch, seq, channel
+                restricted_cp = inv_normalize_cp(restricted_cp)
+                # restrict TTX to be 1cm more frontal TBX
+                restricted_cp[:, :, 10] = restricted_cp[:, :, 12] + 1.0
+                # restrict TTY to be 0.5cm below TBY
+                restricted_cp[:, :, 11] = restricted_cp[:, :, 13] - 0.5
+                xx_new.data = normalize_cp(restricted_cp)
+        return xx_new
 
