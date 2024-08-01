@@ -607,6 +607,8 @@ class Paule():
 
         xx_new = self._apply_restriction(xx_new)
 
+        initial_cp = xx_new.detach().cpu().numpy().copy()
+        initial_cp.shape = (xx_new.shape[1], xx_new.shape[2])
 
         MEL_WEIGHT = 5.0
         VELOCITY_WEIGHT = 80.0  # alternative: 1000
