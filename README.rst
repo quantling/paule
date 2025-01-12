@@ -4,7 +4,7 @@ PAULE
 .. image:: https://zenodo.org/badge/355606517.svg
    :target: https://zenodo.org/badge/latestdoi/355606517
 
-Predictive Articulatory speech synthesis Utilizing Lexical Embeddings (PAULE) a
+Predictive Articulatory speech synthesis Utilizing Lexical Embeddings (PAULE) is a
 python frame work to plan control parameter trajectories for the VocalTractLab
 simulator for a target acoustics or semantic embedding.
 
@@ -54,6 +54,9 @@ To cite the PAULE source code use the DOI 10.5281/zenodo.7252431
 (https://zenodo.org/doi/10.5281/zenodo.7252431), if you want to cite the
 software in general or the specific DOI on Zenodo.
 
+Linked Projects
+---------------
+To generate suitable corpus data  for the PAULE model, we have also implemented  `create_vtl_corpus <https://github.com/quantling/create_vtl_corpus>`_
 
 Acknowledgements
 ----------------
