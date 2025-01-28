@@ -124,7 +124,8 @@ class Paule():
             self.pred_model = ForwardModel(num_lstm_layers=1, hidden_size=720).double()
             self.pred_model.load_state_dict(
                 torch.load(os.path.join(DIR, "pretrained_models/predictive/pred_model_common_voice_1_720_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
-                           map_location=self.device))
+                           map_location=self.device,
+                           weights_only=True))
             # Non-Linear Perceptron PREDictive MODEL
             #self.pred_model = NonLinearModel(input_channel=30, output_channel=60,
             #                         mode="pred",
@@ -145,7 +146,8 @@ class Paule():
             self.inv_model = InverseModelMelTimeSmoothResidual(num_lstm_layers=1, hidden_size=720).double()
             self.inv_model.load_state_dict(
                 torch.load(os.path.join(DIR, "pretrained_models/inverse/inv_model_common_voice_3_1_720_5_lr_0001_50_00001_50_000001_50_0000001_200.pt"),
-                           map_location=self.device))
+                           map_location=self.device,
+                           weights_only=True))
             # Non-Linear Perceptron INVerse MODEL
             #self.inv_model = NonLinearModel(input_channel=60, output_channel=30,
             #                                 mode="inv",
@@ -165,7 +167,8 @@ class Paule():
             self.embedder = EmbeddingModel(num_lstm_layers=2, hidden_size=720).double()
             self.embedder.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/embedder/embed_model_common_voice_syn_rec_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
-                map_location=self.device))
+                map_location=self.device,
+                weights_only=True))
             self.embedder.eval()
             # Non-Linear Perceptron Embedder
             #self.embedder = NonLinearModel(input_channel=60, output_channel=300,
@@ -187,7 +190,8 @@ class Paule():
             self.cp_gen_model = Generator().double()
             self.cp_gen_model.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/cp_gan/conditional_trained_cp_generator_whole_critic_it_5_10_20_40_80_100_415.pt"),
-                map_location=self.device))
+                map_location=self.device,
+                weights_only=True))
         self.cp_gen_model = self.cp_gen_model.to(self.device)
         self.cp_gen_model.eval()
 
@@ -198,7 +202,8 @@ class Paule():
             self.mel_gen_model = Generator(output_size=60).double()
             self.mel_gen_model.load_state_dict(torch.load(
                 os.path.join(DIR, "pretrained_models/mel_gan/conditional_trained_mel_generator_synthesized_critic_it_5_10_20_40_80_100_400.pt"),
-                                                          map_location=self.device))
+                                                          map_location=self.device,
+                           weights_only=True))
         self.mel_gen_model = self.mel_gen_model.to(self.device)
         self.mel_gen_model.eval()
 
@@ -213,7 +218,8 @@ class Paule():
                 self.speech_classifier.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/speech_classifier/linear_model_rec_as_nonspeech.pt"),
                     #os.path.join(DIR, "pretrained_models/speech_classifier/model_rec_as_nonspeech.pt"),
-                           map_location=self.device))
+                           map_location=self.device,
+                           weights_only=True))
                 self.speech_classifier = self.speech_classifier.double()
             self.speech_classifier = self.speech_classifier.to(self.device)
             self.speech_classifier.eval()
@@ -231,7 +237,8 @@ class Paule():
                                              apply_half_sequence=False).double()
                 self.cp_tube_model.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/cp_to_tube_model_1_360_lr_0001_50_00001_100.pt"),
-                                                         map_location=self.device))
+                                                         map_location=self.device,
+                           weights_only=True))
             self.cp_tube_model = self.cp_tube_model.to(self.device)
 
             # Tube-Mel Model (tube -> mel)
@@ -245,7 +252,8 @@ class Paule():
                     apply_half_sequence=True).double()
                 self.tube_mel_model.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/tube_to_mel_model_1_360_lr_0001_50_00001_100.pt"),
-                                                          map_location=self.device))
+                                                          map_location=self.device,
+                           weights_only=True))
             self.tube_mel_model = self.tube_mel_model.to(self.device)
 
             # Tube-Embedder Model (tube -> semvec)
@@ -259,7 +267,8 @@ class Paule():
                                                     post_upsampling_size=0).double()
                 self.tube_embedder.load_state_dict(torch.load(
                     os.path.join(DIR, "pretrained_models/somatosensory/tube_to_vector_model_2_720_0_dropout_07_noise_6e05_rmse_lr_00001_200.pt"),
-                           map_location=self.device))
+                           map_location=self.device,
+                           weights_only=True))
             self.tube_embedder = self.tube_embedder.to(self.device)
             self.tube_embedder.eval()
 
