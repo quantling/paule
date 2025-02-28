@@ -878,10 +878,10 @@ class Paule():
         initial_pred_semvec = initial_pred_semvec[-1, :].detach().cpu().numpy().copy()
 
 
-        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.Inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)
-        self.best_synthesis_semantic = BestSynthesisSemantic(np.Inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)
+        self.best_synthesis_acoustic = BestSynthesisAcoustic(np.inf, initial_cp, initial_sig, initial_prod_mel, initial_pred_mel)
+        self.best_synthesis_semantic = BestSynthesisSemantic(np.inf, initial_cp, initial_sig, initial_prod_semvec, initial_pred_semvec)
         if self.use_somatosensory_feedback:
-            self.best_synthesis_somatosensory = BestSynthesisSomatosensory(np.Inf, np.Inf, np.Inf, initial_cp, initial_sig,
+            self.best_synthesis_somatosensory = BestSynthesisSomatosensory(np.inf, np.inf, np.inf, initial_cp, initial_sig,
                                                                            initial_prod_tube,
                                                                            initial_pred_tube,
                                                                            initial_prod_tube_mel,
@@ -1182,7 +1182,7 @@ class Paule():
                             self.best_synthesis_acoustic = new_synthesis_acoustic
 
                         if self.use_somatosensory_feedback:
-                            new_synthesis_somatosensory = BestSynthesisSomatosensory(float(prod_tube_loss.item()), float(prod_tube_mel_loss.item()), np.Inf,
+                            new_synthesis_somatosensory = BestSynthesisSomatosensory(float(prod_tube_loss.item()), float(prod_tube_mel_loss.item()), np.inf,
                                                                                            xx_new_numpy, sig,
                                                                                            prod_tube,
                                                                                            pred_tube[-1, :].detach().cpu().numpy().copy(),
