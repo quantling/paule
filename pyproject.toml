@@ -37,7 +37,7 @@ numba = ">=0.56.4"
 toml = ">=0.10.2"
 matplotlib = ">=3.8.0"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
 pytest-cov = ">=2.4"
 pydocstyle = ">=6.1.1"
