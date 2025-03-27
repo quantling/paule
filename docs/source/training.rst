@@ -24,5 +24,7 @@ Paule consist of a number of models that are trained seperately. The models are:
 
 - `InverseModel` Input: Log mel spectrogram, Output: Normalized control parameters
 
+-`MelGANs`
+
 
 
